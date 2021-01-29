@@ -1,0 +1,1423 @@
+/* 
+
+(c) 2014 - Markus Backes - https://backes-markus.de/blog/
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+Dieses Programm ist Freie Software: Sie k�nnen es unter den Bedingungen
+der GNU General Public License, wie von der Free Software Foundation,
+Version 3 der Lizenz oder (nach Ihrer Wahl) jeder neueren
+ver�ffentlichten Version, weiterverbreiten und/oder modifizieren.
+
+Dieses Programm wird in der Hoffnung, dass es nuetzlich sein wird, aber
+OHNE JEDE GEWAEHRLEISTUNG, bereitgestellt; sogar ohne die implizite
+Gewaehrleistung der MARKTFaeHIGKEIT oder EIGNUNG F�R EINEN BESTIMMTEN ZWECK.
+Siehe die GNU General Public License fuer weitere Details.
+
+Sie sollten eine Kopie der GNU General Public License zusammen mit diesem
+Programm erhalten haben. Wenn nicht, siehe <http://www.gnu.org/licenses/>. 
+*/
+
+//Library includes
+#define FASTLED_ALLOW_INTERRUPTS 0
+#define FASTLED_INTERRUPT_RETRY_COUNT 1
+#define FASTLED_ESP8266_NODEMCU_PIN_ORDER
+
+#include <FastLED.h>            // library for ws2812 led arry
+#include <Wire.h>               // library for serial communication
+#include <TimeLib.h>            // library for time handling / needed for RTC and DCF77
+//#include <Timezone.h>
+
+#include <Wire.h> // must be included here so that Arduino library object file references work
+#include <RtcDS3231.h>
+RtcDS3231<TwoWire> Rtc(Wire);
+#define countof(a) (sizeof(a) / sizeof(a[0]))
+
+#include <ESP8266WiFi.h>
+#include <WiFiClient.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266mDNS.h>
+#include <WiFiUdp.h>
+#include <strings_en.h>  // wifi manager
+#include <WiFiManager.h> // wifi manager
+#include <ArduinoOTA.h>  // ota updates
+
+#define WIFI_SSID  ""
+#define WIFI_PASS  ""
+
+// IR defines
+#define ONOFF 0xFF02FD
+#define AUTO 0xFFF00F
+#define BLUE_DOWN 0xFF48B7
+#define BLUE_UP 0xFF6897
+#define BRIGHTER 0xFF3AC5
+#define DIM 0xFFBA45
+#define DIY1 0xFF30CF
+#define DIY2 0xFFB04F
+#define DIY3 0xFF708F
+#define DIY4 0xFF10EF
+#define DIY5 0xFF906F
+#define DIY6 0xFF50AF
+#define FLASH 0xFFD02F
+#define QUICK 0xFFE817
+#define SLOW 0xFFC837
+
+// PIN defines
+#define STRIP_DATA_PIN D3     // LED strip
+
+#define ARDUINO_LED 13        // Default Arduino LED pin
+#define LDR_PIN A0            // LDR for light level sensing
+
+//
+// Seetings for WS2812 LED strip
+//
+#define NUM_LEDS 114          /// total number of leds: 10 x 11 for clock letter + 4 minute dots
+
+// brightness constrains for leds
+#define MIN_BRIGHTNESS 64
+#define MAX_BRIGHTNESS 255
+
+#define STARTING_BRIGHTNESS 64
+int brightness = STARTING_BRIGHTNESS;
+
+// automatic brightness control via ldr
+boolean autoBrightnessEnabled = true;
+int newBrightness = 128; 
+int oldBrightness = 128;
+int darkBrightness = 0;
+
+// different layouts for led matrix (line by line or zig-zag
+//#include "default_layout.h"
+//#include "alt_layout1.h"
+#include "alt_layout2.h"       // zig-zag layout, alternating rows
+
+uint8_t selectedLanguageMode = 0;
+const uint8_t RHEIN_RUHR_MODE = 0; //Define?
+const uint8_t WESSI_MODE = 1;
+
+int displayMode = DIY1;
+
+// led array
+uint8_t strip[NUM_LEDS];
+uint8_t stackptr = 0;
+
+CRGB leds[NUM_LEDS];
+
+#include "animations.h"       // zig-zag layout, alternating rows
+
+CRGB defaultColor = CRGB::White;
+uint8_t colorIndex = 0;
+
+//
+// Setting for touch control via ttp 223 sensor
+//
+#define touchSw D5  // pin for touch sensor
+//#define ledSw D4    // pin for control led
+#define TTS 40      // touch threshold
+
+int touchNull = 0;
+int touchDown = 0; // sensor touched
+int touchDuration = 1000;
+int dark = 0;
+long touchTime, touchTimeOff = 0;
+
+boolean touch = 0;
+
+int testHours = 0;
+int testMinutes = 0;
+ 
+// multitasking helper
+
+const long oneSecondDelay = 1000;
+const long halfSecondDelay = 500;
+
+long waitUntilRtc = 0;
+long waitUntilParty = 0;
+long waitUntilOff = 0;
+long waitUntilFastTest = 0;
+long waitUntilHeart = 0;
+long waitUntilTree = 0;
+long waitUntilTime = 0;
+long waitUntilLDR = 0;
+
+// switch 
+int modeSwitch = 1;
+
+// forward declaration
+void fastTest();
+void doTouchLogic();
+void clockLogic();
+void doLDRLogic();
+void makeParty();
+void off();
+void showHeart();
+void pushToStrip(int ledId);
+void resetAndBlack();
+void resetStrip();
+void displayStripRandomColor();
+void displayStrip();
+void displayStrip(CRGB colorCode);
+void timeToStrip(uint8_t hours,uint8_t minutes);
+
+int baudRate = 115200;
+
+// This database is autogenerated from IANA timezone database
+//    https://www.iana.org/time-zones
+// and can be updated on demand in this repository
+//#include <TZ.h>
+
+// example of a timezone with a variable Daylight-Saving-Time:
+// demo: watch automatic time adjustment on Summer/Winter change (DST)
+//#define MYTZ TZ_Europe_Berlin  
+
+// Sync timeout
+#define SYNCTIMEOUT 1*1000 // 1min
+
+char unixString[11];
+long unixTime;
+boolean dataSync = false;
+
+time_t loctime, serialtime, utc;
+
+
+#define DEB_ON
+
+#ifdef DEB_ON
+  #define DEBUG_PRINT(str)  Serial.print(str)
+  #define DEBUG_PRINTLN(str)  Serial.println(str)
+#else
+  #define DEBUG_PRINT(str)
+  #define DEBUG_PRINTLN(str)
+#endif
+
+
+
+IPAddress timeServerIP; // time.nist.gov NTP server address
+const char* ntpServerName = "time.nist.gov";
+const int NTP_PACKET_SIZE = 48; // NTP time stamp is in the first 48 bytes of the message
+byte packetBuffer[ NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing packets
+
+unsigned int localPort = 2390;      // local port to listen for UDP packets
+
+// A UDP instance to let us send and receive packets over UDP
+WiFiUDP udp;
+
+//Function used in this projects
+time_t getNtpTime();
+void digitalClockDisplay();
+void printDigits(int digits);
+void sendNTPpacket(IPAddress &address);
+
+void digitalClockDisplay()
+{
+  Serial.print(hour());//print hour in serial monitor
+  printDigits(minute());//print minutes in serial monitor
+  printDigits(second()); //print second in serial monitor
+  Serial.print(" ");
+  Serial.print(day()); //print day in serial monitor
+  Serial.print(".");
+  Serial.print(month()); //print month in serial monitor
+  Serial.print(".");
+  Serial.print(year()); //print year in serial monitor
+  Serial.println();
+ 
+}
+
+void printDigits(int digits)
+{
+  Serial.print(":");
+  if (digits < 10)
+    Serial.print('0');
+  Serial.print(digits);
+}
+
+//This function get time from NTP Server
+time_t getNtpTime()
+{
+  IPAddress ntpServerIP; // NTP server's ip address
+
+  while (udp.parsePacket() > 0) ; // discard any previously received packets
+  Serial.println("Transmit NTP Request");
+  WiFi.hostByName(ntpServerName, ntpServerIP);
+  Serial.print(ntpServerName);
+  Serial.print(": ");
+  Serial.println(ntpServerIP);
+  sendNTPpacket(ntpServerIP);
+  uint32_t beginWait = millis();
+  while (millis() - beginWait < 1500) {
+    int size = udp.parsePacket();
+    if (size >= NTP_PACKET_SIZE) {
+      Serial.println("Receive NTP Response");
+      udp.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
+      unsigned long secsSince1900;
+      secsSince1900 =  (unsigned long)packetBuffer[40] << 24;
+      secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
+      secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
+      secsSince1900 |= (unsigned long)packetBuffer[43];
+      // change you GMT time zones here; For nepal its GMT +5:45
+      //So you have to add the you GMT zones in second i.e. 5 hour 45 minutes = 20700 seconds
+      return secsSince1900 - 2208988800UL + 1 * SECS_PER_HOUR;  // GMT+1
+    }
+  }
+  Serial.println("No NTP Response :-(");
+  return 0; // return 0 if unable to get the time
+}
+
+// send an NTP request to the time server at the given address
+void sendNTPpacket(IPAddress &address)
+{
+  // set all bytes in the buffer to 0
+  memset(packetBuffer, 0, NTP_PACKET_SIZE);
+  // Initialize values needed to form NTP request
+  // (see URL above for details on the packets)
+  packetBuffer[0] = 0b11100011;   // LI, Version, Mode
+  packetBuffer[1] = 0;     // Stratum, or type of clock
+  packetBuffer[2] = 6;     // Polling Interval
+  packetBuffer[3] = 0xEC;  // Peer Clock Precision
+  // 8 bytes of zero for Root Delay & Root Dispersion
+  packetBuffer[12] = 49;
+  packetBuffer[13] = 0x4E;
+  packetBuffer[14] = 49;
+  packetBuffer[15] = 52;
+  // all NTP fields have been given values, now
+  // you can send a packet requesting a timestamp:
+  udp.beginPacket(address, 123); //NTP requests are to port 123
+  udp.write(packetBuffer, NTP_PACKET_SIZE);
+  udp.endPacket();
+}
+
+//Print Time Function
+void printDateTime(const RtcDateTime& dt)
+{
+    char datestring[20];
+
+    snprintf_P(datestring, 
+            countof(datestring),
+            PSTR("%02u/%02u/%04u %02u:%02u:%02u"),
+            month(),
+            day(),
+            year(),
+            hour(),
+            minute(),
+            second() );
+    Serial.print(datestring);
+}
+
+ESP8266WebServer server(80);
+
+void handleRoot()
+{
+  //digitalWrite(led, 1);
+  server.send(200, "text/html", SendHTML(modeSwitch, brightness));
+  //digitalWrite(led, 0);
+}
+
+void handleSet()
+{
+  // main function to handle control commands from web to device
+
+  String message = "";
+
+  // Animation mode
+  if (server.arg("mode") == "")
+  {
+    message = "no-mode";
+  }
+  else
+  {
+    message = "Mode = ";
+    message += server.arg("mode");
+
+    modeSwitch = server.arg("mode").toInt();
+  }
+
+  // LED brightness
+  if (server.arg("bright") == "")
+  {
+    message += " no-brightness";
+  }
+  else
+  {
+    message += " Brightness = ";
+    message += server.arg("bright");
+
+    brightness = server.arg("bright").toInt();
+    FastLED.setBrightness(brightness);
+  }
+
+  server.send(200, "text/html", SendHTML(modeSwitch, brightness));
+}
+
+void handleNotFound()
+{
+  //digitalWrite(led, 1);
+  String message = "File Not Found\n\n";
+  message += "URI: ";
+  message += server.uri();
+  message += "\nMethod: ";
+  message += (server.method() == HTTP_GET) ? "GET" : "POST";
+  message += "\nArguments: ";
+  message += server.args();
+  message += "\n";
+  for (uint8_t i = 0; i < server.args(); i++)
+  {
+    message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
+  }
+  server.send(404, "text/plain", message);
+  //digitalWrite(led, 0);
+}
+
+void setup() {
+  
+  #ifdef DEB_ON
+    Serial.begin(baudRate);
+  #endif
+
+  Serial.println("Start setup");
+
+  delay(500);
+  
+  pinMode(ARDUINO_LED, OUTPUT);
+  pinMode(LDR_PIN, INPUT);
+  pinMode(touchSw,INPUT);
+  //pinMode(ledSw,OUTPUT);
+ 
+  //
+  // setup leds incl. fastled
+  //
+  for(int i = 0; i<NUM_LEDS; i++) {
+    strip[i] = 0;
+  }
+  Serial.println("Init strip");
+  
+  FastLED.addLeds<WS2812B, STRIP_DATA_PIN, GRB>(leds, NUM_LEDS);
+  resetAndBlack();
+  displayStrip();
+
+  makeParty();
+  delay(1000);
+  resetAndBlack();
+  displayStrip();
+  
+  //
+  // Starting wifi manager
+  //
+  WiFiManager wifiManager;
+  wifiManager.autoConnect("WORDCLOCK");
+
+  //
+  // Starting ota update capability
+  //
+  // Port defaults to 8266
+  // ArduinoOTA.setPort(8266);
+
+  // Hostname defaults to esp8266-[ChipID]
+  // ArduinoOTA.setHostname("myesp8266");
+
+  // No authentication by default
+  // ArduinoOTA.setPassword("admin");
+
+  // Password can be set with it's md5 value as well
+  // MD5(admin) = 21232f297a57a5a743894a0e4a801fc3
+  // ArduinoOTA.setPasswordHash("21232f297a57a5a743894a0e4a801fc3");
+
+  ArduinoOTA.onStart([]() {
+    String type;
+    if (ArduinoOTA.getCommand() == U_FLASH)
+      type = "sketch";
+    else // U_SPIFFS
+      type = "filesystem";
+
+    // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+    Serial.println("Start updating " + type);
+  });
+
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nEnd");
+  });
+
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR)
+      Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR)
+      Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR)
+      Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR)
+      Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR)
+      Serial.println("End Failed");
+  });
+
+  ArduinoOTA.begin();
+
+  Rtc.Begin();
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" ");
+  Serial.print("IP number assigned by DHCP is ");
+  Serial.println(WiFi.localIP());
+  Serial.println("Starting UDP");
+  udp.begin(localPort);
+  Serial.print("Local port: ");
+  Serial.println(udp.localPort());
+  Serial.println("waiting for sync");
+  setSyncProvider(getNtpTime);    // Set the time using NTP
+  
+  delay(oneSecondDelay);
+  
+  if(timeStatus() != timeNotSet){
+    digitalClockDisplay();
+    
+    Serial.println("here is another way to set rtc");
+      time_t t = now();
+      char d_mon_yr[12];
+      snprintf_P(d_mon_yr, countof(d_mon_yr), PSTR("%s %02u %04u"), monthShortStr(month(t)), day(t), year(t)); // get month, day and year 
+      Serial.println(d_mon_yr);
+      
+      char tim_set[9];
+      snprintf_P(tim_set, countof(tim_set), PSTR("%02u:%02u:%02u"), hour(t), minute(t), second(t)); // get time 
+      Serial.println(tim_set);
+      
+      Serial.println("Now its time to set up rtc");
+      RtcDateTime compiled = RtcDateTime(d_mon_yr, tim_set);
+      printDateTime(compiled);
+      Serial.println("");
+
+    if (!Rtc.IsDateTimeValid()) 
+    {
+        Serial.println("RTC lost confidence in the DateTime!");  
+    }
+     Rtc.SetDateTime(compiled);
+     RtcDateTime now = Rtc.GetDateTime();
+    if (now < compiled) 
+    {
+        Serial.println("RTC is older than compile time!  (Updating DateTime)");
+        Rtc.SetDateTime(compiled);
+    }
+    else if (now > compiled) 
+    {
+        Serial.println("RTC is newer than compile time. (this is expected)");
+    }
+    else if (now == compiled) 
+    {
+        Serial.println("RTC is the same as compile time! (not expected but all is fine)");
+    }
+    Rtc.Enable32kHzPin(false);
+    Rtc.SetSquareWavePin(DS3231SquareWavePin_ModeNone); 
+
+}
+
+   pinMode(touchSw,INPUT);
+//   pinMode(ledSw,OUTPUT);
+//
+// starting server
+
+  if (MDNS.begin("esp8266"))
+  {
+    Serial.println("MDNS responder started");
+  }
+
+  // server commands
+  server.on("/", handleRoot);   // default web page
+  server.on("/set", handleSet); // set mode
+  server.onNotFound(handleNotFound);
+  server.begin();
+  Serial.println("HTTP server started");
+
+    delay(2*oneSecondDelay);
+}
+
+void loop() {
+ 
+  doLDRLogic();
+  doTouchLogic(); 
+  
+  ArduinoOTA.handle();
+  server.handleClient();
+  MDNS.update();
+
+    
+  if (dark == 0) {
+      if (modeSwitch > 5) {
+        modeSwitch = 1; 
+      }
+      if (modeSwitch < 1) {
+        modeSwitch = 5; 
+      }
+           
+      switch(modeSwitch) {
+          case 1:
+          // Clock  
+          clockLogic();
+          break;
+        
+          case 2:
+          // Party
+          makeParty();
+          break;
+        
+          case 3:
+          // Heart
+          showHeart();
+          break;
+        
+          case 4:
+          // Tree
+          showTree();
+          break;
+        
+          case 5:
+          // Test
+          fireworks();
+          break;
+  
+        case 99:
+          // Display Off
+          off();
+          break;
+  
+          default:
+          clockLogic();
+          break;
+        }
+      }
+}
+
+  void doTouchLogic() {
+  
+      // read touch sensor ttp 223
+      // cycles through display modes
+  
+      //DEBUG_PRINTLN("doing Touch logic");
+     
+      boolean touchState;
+      touchState = digitalRead(touchSw);
+     
+       if ((touchState==HIGH) && (touchDown==0)) {
+        touchTime = millis(); 
+        DEBUG_PRINTLN(touchTime); 
+        touchDown = 1;
+       }
+       
+      if ((touchState==LOW) && (touchDown==1)) {
+        touchTimeOff = millis(); 
+        DEBUG_PRINTLN(touchTime); 
+        DEBUG_PRINTLN(touchTimeOff); 
+        
+        if (touchTime + touchDuration < touchTimeOff){
+          DEBUG_PRINTLN("LONG"); 
+          
+          if (dark == 0) {
+            //darkBrightness = FastLED.getBrightness();
+            //FastLED.setBrightness(0);
+            displayMode = ONOFF;
+            dark = 1;
+            DEBUG_PRINTLN("Darkness");
+          }
+          else {
+            //FastLED.setBrightness(darkBrightness);
+            displayMode = DIY1;
+            //modeSwitch = 1;
+            dark = 0;
+            displayStrip(defaultColor);
+            DEBUG_PRINTLN("Light");
+            //delay(500);
+          }
+          
+        }
+        else {
+          DEBUG_PRINTLN("SHORT"); 
+          modeSwitch --;
+          DEBUG_PRINTLN(modeSwitch);
+        }
+        
+        touchDown = 0;
+        delay(500);
+     
+      }
+  
+      if (dark == 0) {
+      if (modeSwitch > 5) {
+        modeSwitch = 1; 
+      }
+      if (modeSwitch < 1) {
+        modeSwitch = 5; 
+      }
+      
+      switch(modeSwitch) {
+          case 1:
+        // Clock  
+        displayMode = DIY1;
+        break;
+        
+          case 2:
+        // Party
+        displayMode = DIY2;
+        break;
+        
+          case 3:
+        // Heart
+        displayMode = DIY3;
+        break;
+        
+          case 4:
+        // Tree
+        displayMode = DIY4;
+        break;
+        
+          case 5:
+        // Test
+        displayMode = DIY5;
+        break;
+  
+        case 6:
+        // Test
+        displayMode = ONOFF;
+        break;
+  
+          default:
+        displayMode = DIY1;
+        break;
+        }
+      }
+  }
+
+void doLDRLogic() { 
+  
+  // reads ambient light value and adjusts display brightness
+  //  DEBUG_PRINT("M:");
+  //  DEBUG_PRINTLN(millis());
+  //  DEBUG_PRINTLN(waitUntilLDR);
+  
+  if(millis() >= waitUntilLDR && autoBrightnessEnabled) {
+    DEBUG_PRINTLN("doing LDR logic");
+    waitUntilLDR = millis();
+   
+    int newBrightness = map(analogRead(LDR_PIN), 0, 1023, MIN_BRIGHTNESS, MAX_BRIGHTNESS);
+    const int threshold = 20;
+
+    if ((newBrightness > (oldBrightness+threshold)) xor (newBrightness < (oldBrightness-threshold))) {
+      FastLED.setBrightness(newBrightness);
+      FastLED.show();
+      oldBrightness = newBrightness;
+    }
+    DEBUG_PRINT("Value: ");
+    DEBUG_PRINT(analogRead(LDR_PIN));
+    DEBUG_PRINT(" | Brightness: ");
+    DEBUG_PRINTLN(newBrightness);
+    
+    waitUntilLDR += oneSecondDelay;
+  }
+}
+
+
+///////////////////////
+//DISPLAY MODES
+///////////////////////
+
+void clockLogic() {
+
+  if(millis() >= waitUntilRtc) {
+    DEBUG_PRINTLN("doing clock logic");
+
+    RtcDateTime now = Rtc.GetDateTime();
+    //printDateTime(now);
+    //Serial.println();
+    
+    digitalClockDisplay();  
+    waitUntilRtc = millis();
+
+
+// Sylvester-Check
+
+     if ((day() == 31) && (month() == 12) && (hour() == 23) && (minute() == 59)) {
+        if (second() == 50) {
+          DEBUG_PRINTLN("10!");
+          resetAndBlack();
+          pushZEHN();
+          displayStrip(CHSV(random(0, 255), 255, 255));   
+        }
+        else if (second() == 51) {
+          DEBUG_PRINTLN("9!");
+          resetAndBlack();
+          pushNEUN();
+          displayStrip(CHSV(random(0, 255), 255, 255));  
+        }
+        else if (second() == 52) {
+          DEBUG_PRINTLN("8!");
+          resetAndBlack();
+          pushACHT();
+          displayStrip(CHSV(random(0, 255), 255, 255));  
+        }
+        else if (second() == 53) {
+          DEBUG_PRINTLN("7!");
+          resetAndBlack();
+          pushSIEBEN();
+          displayStrip(CHSV(random(0, 255), 255, 255));  
+        }
+        else if (second() == 54) {
+          DEBUG_PRINTLN("6!");
+          resetAndBlack();
+          pushSECHS();
+          displayStrip(CHSV(random(0, 255), 255, 255));  
+        }
+        else if (second() == 55) {
+          DEBUG_PRINTLN("5!");
+          resetAndBlack();
+          pushFUENF1();
+          displayStrip(CHSV(random(0, 255), 255, 255));  
+        }
+        else if (second() == 56) {
+          DEBUG_PRINTLN("4!");
+          resetAndBlack();
+          pushVIER();
+          displayStrip(CHSV(random(0, 255), 255, 255));  
+        }
+        else if (second() == 57) {
+          DEBUG_PRINTLN("3!");
+          resetAndBlack();
+          pushDREI();
+          displayStrip(CHSV(random(0, 255), 255, 255));  
+        }
+        else if (second() == 58) {
+          DEBUG_PRINTLN("2!");
+          resetAndBlack();
+          pushZWEI();
+          displayStrip(CHSV(random(0, 255), 255, 255));  
+        }
+        else if (second() == 59) {
+          DEBUG_PRINTLN("1!");
+          resetAndBlack();
+          pushEINS(true);
+          displayStrip(CHSV(random(0, 255), 255, 255));         
+      }
+
+     else if ((day()== 1) && (month() == 1) && (hour() == 0) && (minute() < 15)) { 
+      DEBUG_PRINTLN("Sylvester!");
+      displayMode = DIY5;
+      
+      //fireworks();
+      modeSwitch = 1;
+      return;
+     }
+  }    
+// end Sylvester-Check    
+  
+    else if(testMinutes != minute() || testHours != hour()) {
+      DEBUG_PRINTLN("SHOW");
+       pushES_IST();
+      testMinutes = minute();
+      testHours = hour();
+      resetAndBlack();
+      timeToStrip(testHours, testMinutes);
+      displayStrip(defaultColor);
+    }
+    
+    waitUntilRtc += oneSecondDelay;
+  }
+ }
+
+void off() {
+  if(millis() >= waitUntilOff) {
+    DEBUG_PRINTLN("switching off");
+    waitUntilOff = millis();
+    resetAndBlack();
+    displayStrip(CRGB::Black);
+    waitUntilOff += halfSecondDelay;
+  }
+}
+
+void makeParty() {
+  if(millis() >= waitUntilParty) {
+    //autoBrightnessEnabled = false;
+    DEBUG_PRINTLN("YEAH party party");
+    waitUntilParty = millis();
+    resetAndBlack();
+    for(int i = 0; i<NUM_LEDS;i++) {
+      leds[i] = CHSV(random(0, 255), 255, 255);
+    }
+    FastLED.show();
+    waitUntilParty += halfSecondDelay;
+  }
+}
+
+void showHeart() {
+  if(millis() >= waitUntilHeart) {
+    //autoBrightnessEnabled = false;
+    DEBUG_PRINTLN("showing heart");
+    waitUntilHeart = millis();
+    resetAndBlack();
+    pushToStrip(L29); pushToStrip(L30); pushToStrip(L70); pushToStrip(L89);
+    pushToStrip(L11); pushToStrip(L48); pushToStrip(L68); pushToStrip(L91);
+    pushToStrip(L7); pushToStrip(L52); pushToStrip(L107);
+    pushToStrip(L6); pushToStrip(L106);
+    pushToStrip(L5); pushToStrip(L105);
+    pushToStrip(L15); pushToStrip(L95);
+    pushToStrip(L23); pushToStrip(L83);
+    pushToStrip(L37); pushToStrip(L77);
+    pushToStrip(L41); pushToStrip(L61);
+    pushToStrip(L59);
+    displayStrip(CRGB::Red);
+    waitUntilHeart += oneSecondDelay;
+  }
+}
+
+
+void showTree() {
+  if(millis() >= waitUntilTree) {
+    //autoBrightnessEnabled = false;
+    DEBUG_PRINTLN("showing x-mas tree");
+    waitUntilTree = millis();
+    resetAndBlack();
+    
+    leds[5] = CRGB::Green;
+    for(int i=15; i<18;i++) {
+      leds[i] = CRGB::Green;
+    }
+    for(int i=25; i<30;i++) {
+      leds[i] = CRGB::Green;
+    }
+    for(int i=36; i<41;i++) {
+      leds[i] = CRGB::Green;
+    }
+    for(int i=46; i<53;i++) {
+      leds[i] = CRGB::Green;
+    }
+    for(int i=57; i<64;i++) {
+      leds[i] = CRGB::Green;
+    }
+    for(int i=67; i<76;i++) {
+      leds[i] = CRGB::Green;
+    }
+    for(int i=78; i<87;i++) {
+      leds[i] = CRGB::Green;
+    }
+    for(int i=88; i<99;i++) {
+      leds[i] = CRGB::Green;
+    }
+    for(int i=103; i<106;i++) {
+        leds[i] = 0x371900;
+    }
+
+  
+    leds[67] = CRGB::Yellow; leds[75] = CRGB::Yellow;
+    
+    leds[46] = CRGB::Yellow; leds[52] = CRGB::Yellow;
+         
+    leds[25] = CRGB::Yellow; leds[29] = CRGB::Yellow;
+
+    FastLED.show();
+      
+    waitUntilTree += oneSecondDelay;
+  }
+}
+
+
+void fastTest() {
+  if(millis() >= waitUntilFastTest) {
+    //autoBrightnessEnabled = false;
+    DEBUG_PRINTLN("running display test");
+    waitUntilFastTest = millis();
+    if(testMinutes >= 60) {
+      testMinutes = 0;
+      testHours++;
+    }
+    if(testHours >= 24) {
+      testHours = 0;
+    }
+    
+    //Array leeren
+    resetAndBlack();
+    timeToStrip(testHours, testMinutes);
+    displayStripRandomColor();
+    testMinutes++;
+    waitUntilFastTest += oneSecondDelay;
+  }
+}
+///////////////////////
+
+CRGB prevColor() {
+  if(colorIndex > 0) {
+    colorIndex--;
+  }
+  return getColorForIndex();
+}
+CRGB nextColor() {
+  if(colorIndex < 9) {
+    colorIndex++;
+  }
+  return getColorForIndex();
+}
+
+CRGB getColorForIndex() {
+  switch(colorIndex) {
+    case 0:
+      return CRGB::White;
+    case 1:
+      return CRGB::Blue;
+    case 2:
+      return CRGB::Aqua;
+    case 3:
+      return CRGB::Green;
+    case 4:
+      return CRGB::Lime;
+    case 5:
+      return CRGB::Red;
+    case 6:
+      return CRGB::Magenta;
+    case 7:
+      return CRGB::Olive;
+    case 8:
+      return CRGB::Yellow;
+    case 9:
+      return CRGB::Silver;
+    default:
+      colorIndex = 0;
+      return CRGB::White;
+  }
+}
+
+void pushToStrip(int ledId) {
+  strip[stackptr] = ledId;
+  stackptr++;
+}
+
+void resetAndBlack() {
+  resetStrip();
+  for(int i = 0; i<NUM_LEDS; i++) {
+    leds[i] = CRGB::Black;
+  }
+}
+
+void resetStrip() {
+  stackptr = 0;
+  for(int i = 0; i<NUM_LEDS; i++) {
+    strip[i] = 0;
+  }
+}
+
+void displayStripRandomColor() {
+  for(int i = 0; i<stackptr; i++) {
+    leds[strip[i]] = CHSV(random(0, 255), 255, 255);
+  }
+  FastLED.show();
+}
+
+void displayStrip() {
+  displayStrip(defaultColor);
+}
+
+void displayStrip(CRGB colorCode) {
+  for(int i = 0; i<stackptr; i++) {
+    leds[strip[i]] = colorCode;
+  }
+  FastLED.show();
+}
+
+void timeToStrip(uint8_t hours,uint8_t minutes)
+{
+  
+  pushES_IST();
+
+  //show minutes
+  if(minutes >= 5 && minutes < 10) {
+    pushFUENF1();
+    pushNACH();
+  } else if(minutes >= 10 && minutes < 15) {
+    pushZEHN1();
+    pushNACH();
+  } else if(minutes >= 15 && minutes < 20) {
+    pushVIERTEL();
+    pushNACH();
+  } else if(minutes >= 20 && minutes < 25) {
+    if(selectedLanguageMode == RHEIN_RUHR_MODE) {
+      pushZWANZIG();
+      pushNACH();
+    } else if(selectedLanguageMode == WESSI_MODE) {
+      pushZEHN1();
+      pushVOR();
+      pushHALB();
+    }
+  } else if(minutes >= 25 && minutes < 30) {
+    pushFUENF1();
+    pushVOR();
+    pushHALB();
+  } else if(minutes >= 30 && minutes < 35) {
+    pushHALB();
+  } else if(minutes >= 35 && minutes < 40) {
+    pushFUENF1();
+    pushNACH();
+    pushHALB();
+  } else if(minutes >= 40 && minutes < 45) {
+    if(selectedLanguageMode == RHEIN_RUHR_MODE) {
+      pushZWANZIG();
+      pushVOR();
+    } else if(selectedLanguageMode == WESSI_MODE) {
+      pushZEHN1();
+      pushNACH();
+      pushHALB();
+    }
+  } else if(minutes >= 45 && minutes < 50) {
+    pushVIERTEL();
+    pushVOR();
+  } else if(minutes >= 50 && minutes < 55) {
+    pushZEHN1();
+    pushVOR();
+  } else if(minutes >= 55 && minutes < 60) {
+    pushFUENF1();
+    pushVOR();
+  }
+  
+  int singleMinutes = minutes % 5;
+  switch(singleMinutes) {
+    case 1:
+      pushONE();
+      break;
+    case 2:
+      pushONE();
+      pushTWO();
+      break;
+    case 3:
+      pushONE();
+      pushTWO();
+      pushTHREE();
+      break;
+    case 4:
+      pushONE();
+      pushTWO();
+      pushTHREE();
+      pushFOUR();
+    break;
+  }
+
+  if(hours >= 12) {
+    hours -= 12;
+  }
+
+  if(selectedLanguageMode == RHEIN_RUHR_MODE) {
+    if(minutes >= 25) {
+      hours++;
+    }
+  } else if(selectedLanguageMode == WESSI_MODE) {
+    if(minutes >= 20) {
+      hours++;
+    }
+  }
+
+  if(hours == 12) {
+    hours = 0;
+  }
+
+  //show hours
+  switch(hours) {
+    case 0:
+      pushZWOELF();
+      break;
+    case 1:
+      if(minutes > 4) {
+        pushEINS(true);
+      } else {
+        pushEINS(false);
+      }
+      break;
+    case 2:
+      pushZWEI();
+      break;
+    case 3:
+      pushDREI();
+      break;
+    case 4:
+      pushVIER();
+      break;
+    case 5:
+      pushFUENF2();
+      break;
+    case 6:
+      pushSECHS();
+      break;
+    case 7:
+      pushSIEBEN();
+      break;
+    case 8:
+      pushACHT();
+      break;
+    case 9:
+      pushNEUN();
+      break;
+    case 10:
+      pushZEHN();
+      break;
+    case 11:
+      pushELF();
+      break;
+  }
+  
+  //show uhr
+  if(minutes < 5) {
+    pushUHR();
+  }
+}
+
+///////////////////////
+//PUSH WORD HELPER
+///////////////////////
+void pushES_IST()  {
+  DEBUG_PRINTLN("Es ist ");
+  pushToStrip(L9);
+  pushToStrip(L10);
+  pushToStrip(L30);
+  pushToStrip(L49);
+  pushToStrip(L50);
+}
+
+void pushFUENF1() {
+  DEBUG_PRINTLN("fünf(1) ");
+  pushToStrip(L70);
+  pushToStrip(L89);
+  pushToStrip(L90);
+  pushToStrip(L109);
+}
+
+void pushFUENF2() {
+  DEBUG_PRINTLN("fünf(2) ");
+  pushToStrip(L74);
+  pushToStrip(L85);
+  pushToStrip(L94);
+  pushToStrip(L105);
+}
+
+void pushNACH() {
+  DEBUG_PRINTLN("nach ");
+  pushToStrip(L73);
+  pushToStrip(L86);
+  pushToStrip(L93);
+  pushToStrip(L106);
+}
+
+void pushZEHN1() {
+  DEBUG_PRINTLN("zehn ");
+  pushToStrip(L8);
+  pushToStrip(L11);
+  pushToStrip(L28);
+  pushToStrip(L31);
+}
+
+void pushVIERTEL() {
+  DEBUG_PRINTLN("viertel ");
+  pushToStrip(L47);
+  pushToStrip(L52);
+  pushToStrip(L67);
+  pushToStrip(L72);
+  pushToStrip(L87);
+  pushToStrip(L92);
+  pushToStrip(L107);
+}
+
+void pushVOR() {
+  DEBUG_PRINTLN("vor ");
+  pushToStrip(L6);
+  pushToStrip(L13);
+  pushToStrip(L26);
+}
+
+void pushHALB() {
+  DEBUG_PRINTLN("halb ");
+  pushToStrip(L5);
+  pushToStrip(L14);
+  pushToStrip(L25);
+  pushToStrip(L34);
+}
+
+void pushFUNK() {
+  DEBUG_PRINTLN("funk ");
+  pushToStrip(L33);
+  pushToStrip(L46);
+  pushToStrip(L53);
+  pushToStrip(L66);
+}
+
+
+void pushONE() {
+  DEBUG_PRINTLN(".");
+  pushToStrip(L113);
+}
+
+void pushTWO() {
+  DEBUG_PRINTLN(".");
+  pushToStrip(L110);
+}
+
+void pushTHREE() {
+  DEBUG_PRINTLN(".");
+  pushToStrip(L111);
+}
+
+void pushFOUR() {
+  DEBUG_PRINTLN(".");
+  pushToStrip(L112);
+}
+
+void pushZWANZIG() {
+  DEBUG_PRINTLN("zwanzig ");
+  pushToStrip(L48);
+  pushToStrip(L51);
+  pushToStrip(L68);
+  pushToStrip(L71);
+  pushToStrip(L88);
+  pushToStrip(L91);
+  pushToStrip(L108);
+}
+
+void pushZWOELF() {
+  DEBUG_PRINTLN("zwölf ");
+  pushToStrip(L61);
+  pushToStrip(L78);
+  pushToStrip(L81);
+  pushToStrip(L98);
+  pushToStrip(L101);
+}
+
+void pushEINS(bool s) {
+  DEBUG_PRINTLN("eins ");
+  pushToStrip(L4);
+  pushToStrip(L15);
+  pushToStrip(L24);
+  if(s) {
+    pushToStrip(L35);
+  }
+}
+
+void pushZWEI() {
+  DEBUG_PRINTLN("zwei ");
+  pushToStrip(L75);
+  pushToStrip(L84);
+  pushToStrip(L95);
+  pushToStrip(L104);
+}
+
+void pushDREI() {
+  DEBUG_PRINTLN("drei ");
+  pushToStrip(L3);
+  pushToStrip(L16);
+  pushToStrip(L23);
+  pushToStrip(L36);
+}
+
+void pushVIER() {
+  DEBUG_PRINTLN("vier ");
+  pushToStrip(L76);
+  pushToStrip(L83);
+  pushToStrip(L96);
+  pushToStrip(L103);
+}
+
+void pushSECHS() {
+  DEBUG_PRINTLN("eins ");
+  pushToStrip(L2);
+  pushToStrip(L17);
+  pushToStrip(L22);
+  pushToStrip(L37);
+  pushToStrip(L42);
+}
+
+void pushSIEBEN() {
+  DEBUG_PRINTLN("sieben ");
+  pushToStrip(L1);
+  pushToStrip(L18);
+  pushToStrip(L21);
+  pushToStrip(L38);
+  pushToStrip(L41);
+  pushToStrip(L58);
+}
+
+void pushACHT() {
+  DEBUG_PRINTLN("acht ");
+  pushToStrip(L77);
+  pushToStrip(L82);
+  pushToStrip(L97);
+  pushToStrip(L102);
+}
+
+void pushNEUN() {
+  DEBUG_PRINTLN("neun ");
+  pushToStrip(L39);
+  pushToStrip(L40);
+  pushToStrip(L59);
+  pushToStrip(L60);
+}
+
+void pushZEHN() {
+  DEBUG_PRINTLN("zehn ");
+  pushToStrip(L0);
+  pushToStrip(L19);
+  pushToStrip(L20);
+  pushToStrip(L39);
+}
+
+void pushELF() {
+  DEBUG_PRINTLN("elf ");
+  pushToStrip(L54);
+  pushToStrip(L65);
+  pushToStrip(L74);
+}
+
+void pushUHR() {
+  DEBUG_PRINTLN("Uhr ");
+  pushToStrip(L80);
+  pushToStrip(L99);
+  pushToStrip(L100);
+}
+///////////////////////
+
+// Build the WebInterface
+String SendHTML(uint8_t mode, uint8_t brightness)
+{
+  String html = "<!DOCTYPE html> <html>\n";
+  html += "<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, user-scalable=no\">\n";
+  html += "<title>WordClock Control</title>\n";
+  html += "<style>html { font-family: Helvetica; display: inline-block; margin: 0 auto; text-align: center;}\n";
+  html += "body{color: #444;margin-top: 50px;} h1 {margin: 50px auto 30px;} h3 {margin-bottom: 50px;}\n";
+  html += ".button {display: block;background-color: #1abc9c;border: none;color: white;padding: 13px 30px;text-decoration: none;font-size: 25px;margin: 0px auto 35px;cursor: pointer;border-radius: 4px;}\n";
+  html += ".button {background-color: #34495e;}\n";
+  html += ".button:hover {background-color: #2c3e50;}\n";
+  html += (String) ".mode-" + mode + " .mode-" + mode + ".button {background-color: #1abc9c;}\n";
+  html += (String) ".mode-" + mode + " .mode-" + mode + ".button:hover {background-color: #16a085;}\n";
+  html += "p {font-size: 14px;color: #888;margin-bottom: 10px;}\n";
+  html += "</style>\n";
+  html += "</head>\n";
+  html += (String) "<body class=\"mode-" + mode + "\">\n";
+
+  html += "<h1>WordClock Control</h1>\n";
+  html += (String) "<h2>Actual Mode: " + mode + " - Brightness: " + brightness + " / " + newBrightness + "</h2>\n";
+
+  html += (String) "<p>Mode = 1</p><a class=\"mode-1 button\" href=\"/set?mode=1&bright=" + brightness + "\">Uhrzeit</a>\n";
+  html += (String) "<p>Mode = 2</p><a class=\"mode-2 button\" href=\"/set?mode=2&bright=" + brightness + "\">Party Time!</a>\n";
+  html += (String) "<p>Mode = 3</p><a class=\"mode-3 button\" href=\"/set?mode=3&bright=" + brightness + "\">Herz</a>\n";
+  html += (String) "<p>Mode = 4</p><a class=\"mode-4 button\" href=\"/set?mode=4&bright=" + brightness + "\">Weihnachtsbaum</a>\n";
+  html += (String) "<p>Mode = 5</p><a class=\"mode-5 button\" href=\"/set?mode=5&bright=" + brightness + "\">Sylvester</a>\n";
+  html += (String) "<p>Mode = 99</p><a class=\"mode-99 button\" href=\"/set?mode=99&bright=" + brightness + "\">Display aus</a>\n";
+
+  html += "</body>\n";
+  html += "</html>\n";
+  return html;
+}
