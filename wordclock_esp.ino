@@ -123,7 +123,6 @@ uint8_t colorIndex = 0;
 // Setting for touch control via ttp 223 sensor
 //
 #define touchSw D5  // pin for touch sensor
-//#define ledSw D4    // pin for control led
 #define TTS 40      // touch threshold
 
 int touchNull = 0;
@@ -340,6 +339,13 @@ void handleSet()
     message += server.arg("mode");
 
     modeSwitch = server.arg("mode").toInt();
+
+    if (modeSwitch == 99) {
+      dark = 1;
+    }
+    else {
+      dark = 0;
+    }
   }
 
   // LED brightness
@@ -391,7 +397,6 @@ void setup() {
   pinMode(ARDUINO_LED, OUTPUT);
   pinMode(LDR_PIN, INPUT);
   pinMode(touchSw,INPUT);
-  //pinMode(ledSw,OUTPUT);
  
   //
   // setup leds incl. fastled
@@ -405,10 +410,8 @@ void setup() {
   resetAndBlack();
   displayStrip();
 
-  makeParty();
-  delay(1000);
-  resetAndBlack();
-  displayStrip();
+  pushFUNK();
+  displayStrip(CRGB::Blue);
   
   //
   // Starting wifi manager
@@ -527,9 +530,11 @@ void setup() {
 
 }
 
-   pinMode(touchSw,INPUT);
-//   pinMode(ledSw,OUTPUT);
-//
+    resetAndBlack();
+    displayStrip();
+    pinMode(touchSw,INPUT);
+
+
 // starting server
 
   if (MDNS.begin("esp8266"))
@@ -544,7 +549,7 @@ void setup() {
   server.begin();
   Serial.println("HTTP server started");
 
-    delay(2*oneSecondDelay);
+    delay(oneSecondDelay);
 }
 
 void loop() {
@@ -600,6 +605,9 @@ void loop() {
           clockLogic();
           break;
         }
+      }
+      else {
+        off();
       }
 }
 
@@ -699,6 +707,9 @@ void loop() {
         displayMode = DIY1;
         break;
         }
+      }
+      else {
+        off();
       }
   }
 
