@@ -1407,26 +1407,26 @@ String SendHTML(uint8_t mode, uint8_t brightness)
   html += "<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, user-scalable=no\">\n";
   html += "<title>WordClock Control</title>\n";
   html += "<style>html { font-family: Helvetica; display: inline-block; margin: 0 auto; text-align: center;}\n";
-  html += "body{color: #444;margin-top: 50px;} h1 {margin: 50px auto 30px;} h3 {margin-bottom: 50px;}\n";
+  html += "body{color: #444;margin-top: 30px;} h1 {margin: 30px auto 20px;} h3 {margin-bottom: 30px;}\n";
   html += ".button {display: block;background-color: #1abc9c;border: none;color: white;padding: 13px 30px;text-decoration: none;font-size: 25px;margin: 0px auto 35px;cursor: pointer;border-radius: 4px;}\n";
   html += ".button {background-color: #34495e;}\n";
   html += ".button:hover {background-color: #2c3e50;}\n";
-  html += (String) ".mode-" + mode + " .mode-" + mode + ".button {background-color: #1abc9c;}\n";
-  html += (String) ".mode-" + mode + " .mode-" + mode + ".button:hover {background-color: #16a085;}\n";
+  html += (String) ".mode-" + mode + " .mode-" + mode + ".button {background-color: #f67b6a;}\n";
+  html += (String) ".mode-" + mode + " .mode-" + mode + ".button:hover {background-color: #f27556;}\n";
   html += "p {font-size: 14px;color: #888;margin-bottom: 10px;}\n";
   html += "</style>\n";
   html += "</head>\n";
   html += (String) "<body class=\"mode-" + mode + "\">\n";
 
   html += "<h1>WordClock Control</h1>\n";
-  html += (String) "<h2>Actual Mode: " + mode + " - Brightness: " + brightness + " / " + newBrightness + "</h2>\n";
+  html += (String) "<p>Actual Mode: " + mode + " - Brightness: " + brightness + " / " + newBrightness + "</p>\n";
 
-  html += (String) "<p>Mode = 1</p><a class=\"mode-1 button\" href=\"/set?mode=1&bright=" + brightness + "\">Uhrzeit</a>\n";
-  html += (String) "<p>Mode = 2</p><a class=\"mode-2 button\" href=\"/set?mode=2&bright=" + brightness + "\">Party Time!</a>\n";
-  html += (String) "<p>Mode = 3</p><a class=\"mode-3 button\" href=\"/set?mode=3&bright=" + brightness + "\">Herz</a>\n";
-  html += (String) "<p>Mode = 4</p><a class=\"mode-4 button\" href=\"/set?mode=4&bright=" + brightness + "\">Weihnachtsbaum</a>\n";
-  html += (String) "<p>Mode = 5</p><a class=\"mode-5 button\" href=\"/set?mode=5&bright=" + brightness + "\">Sylvester</a>\n";
-  html += (String) "<p>Mode = 99</p><a class=\"mode-99 button\" href=\"/set?mode=99&bright=" + brightness + "\">Display aus</a>\n";
+  html += (String) "<a class=\"mode-1 button\" href=\"/set?mode=1&bright=" + brightness + "\">Uhrzeit</a>\n";
+  html += (String) "<a class=\"mode-2 button\" href=\"/set?mode=2&bright=" + brightness + "\">Party Time!</a>\n";
+  html += (String) "<a class=\"mode-3 button\" href=\"/set?mode=3&bright=" + brightness + "\">Herz</a>\n";
+  html += (String) "<a class=\"mode-4 button\" href=\"/set?mode=4&bright=" + brightness + "\">Weihnachtsbaum</a>\n";
+  html += (String) "<a class=\"mode-5 button\" href=\"/set?mode=5&bright=" + brightness + "\">Sylvester</a>\n";
+  html += (String) "<a class=\"mode-99 button\" href=\"/set?mode=99&bright=" + brightness + "\">Display aus</a>\n";
 
   html += "</body>\n";
   html += "</html>\n";
