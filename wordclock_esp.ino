@@ -85,7 +85,7 @@ RtcDS3231<TwoWire> Rtc(Wire);
 #define NUM_LEDS 114          /// total number of leds: 10 x 11 for clock letter + 4 minute dots
 
 // brightness constrains for leds
-#define MIN_BRIGHTNESS 64
+#define MIN_BRIGHTNESS 32
 #define MAX_BRIGHTNESS 255
 
 #define STARTING_BRIGHTNESS 64
@@ -724,7 +724,7 @@ void doLDRLogic() {
     DEBUG_PRINTLN("doing LDR logic");
     waitUntilLDR = millis();
    
-    int newBrightness = map(analogRead(LDR_PIN), 0, 1023, MIN_BRIGHTNESS, MAX_BRIGHTNESS);
+    newBrightness = map(analogRead(LDR_PIN), 0, 1023, MIN_BRIGHTNESS, MAX_BRIGHTNESS);
     const int threshold = 20;
 
     if ((newBrightness > (oldBrightness+threshold)) xor (newBrightness < (oldBrightness-threshold))) {
