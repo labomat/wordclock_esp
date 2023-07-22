@@ -203,7 +203,8 @@ time_t loctime, serialtime, utc;
 
 
 IPAddress timeServerIP; // time.nist.gov NTP server address
-const char* ntpServerName = "time.nist.gov";
+//const char* ntpServerName = "time.nist.gov";
+const char* ntpServerName = "time.google.com";
 const int NTP_PACKET_SIZE = 48; // NTP time stamp is in the first 48 bytes of the message
 byte packetBuffer[ NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing packets
 
@@ -266,7 +267,8 @@ time_t getNtpTime()
       secsSince1900 |= (unsigned long)packetBuffer[43];
       // change you GMT time zones here; For nepal its GMT +5:45
       //So you have to add the you GMT zones in second i.e. 5 hour 45 minutes = 20700 seconds
-      return secsSince1900 - 2208988800UL + 1 * SECS_PER_HOUR;  // GMT+1
+
+      return secsSince1900 - 2208988800UL + 2 * SECS_PER_HOUR; // GMT+1 = MEZ ; +2 = MESZ
     }
   }
   Serial.println("No NTP Response :-(");
@@ -1405,28 +1407,31 @@ String SendHTML(uint8_t mode, uint8_t brightness)
 {
   String html = "<!DOCTYPE html> <html>\n";
   html += "<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, user-scalable=no\">\n";
-  html += "<title>WordClock Control</title>\n";
-  html += "<style>html { font-family: Helvetica; display: inline-block; margin: 0 auto; text-align: center;}\n";
-  html += "body{color: #444;margin-top: 30px;} h1 {margin: 30px auto 20px;} h3 {margin-bottom: 30px;}\n";
-  html += ".button {display: block;background-color: #1abc9c;border: none;color: white;padding: 13px 30px;text-decoration: none;font-size: 25px;margin: 0px auto 35px;cursor: pointer;border-radius: 4px;}\n";
-  html += ".button {background-color: #34495e;}\n";
+  html += "<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\">\n";
+  html += "<link href=\"https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;700&display=swap\" rel=\"stylesheet\">\n";
+  html += "<title>WORDCLOCK Control</title>\n";
+  html += "<style>html{font-family: Open Sans, sans serif; display: inline-block; margin: 0 auto; text-align: center;}\n";
+  html += "body{color: #fff; background-color: #000; margin-top: 30px;} h1 {margin: 30px auto 30px;font-weight: 400;} h3 {margin-bottom: 30px;}\n";
+  html += ".panel{display:flex;flex-flow:row wrap;width: 100%;max-width: 500px;margin: 0 auto; }\n";
+  html += ".button {width: 45%;margin: 0px auto 30px; padding: 10% 0; border: 2px solid white;border-radius: 10px; color: white;text-decoration: none;font-size: 18px;cursor: pointer;}\n";
   html += ".button:hover {background-color: #2c3e50;}\n";
-  html += (String) ".mode-" + mode + " .mode-" + mode + ".button {background-color: #f67b6a;}\n";
+  html += (String) ".mode-" + mode + " .mode-" + mode + ".button {background-color: #fb6907;color:black; font-weight: 700;}\n";
   html += (String) ".mode-" + mode + " .mode-" + mode + ".button:hover {background-color: #f27556;}\n";
-  html += "p {font-size: 14px;color: #888;margin-bottom: 10px;}\n";
+  html += "p {font-size: 14px;color: #888;margin-bottom: 20px;}\n";
   html += "</style>\n";
   html += "</head>\n";
   html += (String) "<body class=\"mode-" + mode + "\">\n";
 
-  html += "<h1>WordClock Control</h1>\n";
-  html += (String) "<p>Actual Mode: " + mode + " - Brightness: " + brightness + " / " + newBrightness + "</p>\n";
-
+  html += "<h1>W O R D C L O C K</h1>\n";
+  html += "<div class=\"panel\">\n";
   html += (String) "<a class=\"mode-1 button\" href=\"/set?mode=1&bright=" + brightness + "\">Uhrzeit</a>\n";
+  html += (String) "<a class=\"mode-99 button\" href=\"/set?mode=99&bright=" + brightness + "\">Display aus</a>\n";
   html += (String) "<a class=\"mode-2 button\" href=\"/set?mode=2&bright=" + brightness + "\">Party Time!</a>\n";
   html += (String) "<a class=\"mode-3 button\" href=\"/set?mode=3&bright=" + brightness + "\">Herz</a>\n";
   html += (String) "<a class=\"mode-4 button\" href=\"/set?mode=4&bright=" + brightness + "\">Weihnachtsbaum</a>\n";
   html += (String) "<a class=\"mode-5 button\" href=\"/set?mode=5&bright=" + brightness + "\">Sylvester</a>\n";
-  html += (String) "<a class=\"mode-99 button\" href=\"/set?mode=99&bright=" + brightness + "\">Display aus</a>\n";
+  html += "</div>\n";
+  html += (String) "<p>Mode: " + mode + " - Brightness: " + brightness + " / " + newBrightness + "</p>\n";
 
   html += "</body>\n";
   html += "</html>\n";
