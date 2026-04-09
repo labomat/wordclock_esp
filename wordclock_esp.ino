@@ -1,5 +1,5 @@
 /* 
-
+v 2.0
 (c) 2014 - Markus Backes - https://backes-markus.de/blog/
 
 This program is free software: you can redistribute it and/or modify
@@ -15,33 +15,29 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-Dieses Programm ist Freie Software: Sie k�nnen es unter den Bedingungen
+Dieses Programm ist Freie Software: Sie koennen es unter den Bedingungen
 der GNU General Public License, wie von der Free Software Foundation,
 Version 3 der Lizenz oder (nach Ihrer Wahl) jeder neueren
-ver�ffentlichten Version, weiterverbreiten und/oder modifizieren.
+veroeffentlichten Version, weiterverbreiten und/oder modifizieren.
 
 Dieses Programm wird in der Hoffnung, dass es nuetzlich sein wird, aber
 OHNE JEDE GEWAEHRLEISTUNG, bereitgestellt; sogar ohne die implizite
-Gewaehrleistung der MARKTFaeHIGKEIT oder EIGNUNG F�R EINEN BESTIMMTEN ZWECK.
+Gewaehrleistung der MARKTFaeHIGKEIT oder EIGNUNG FUER EINEN BESTIMMTEN ZWECK.
 Siehe die GNU General Public License fuer weitere Details.
 
 Sie sollten eine Kopie der GNU General Public License zusammen mit diesem
 Programm erhalten haben. Wenn nicht, siehe <http://www.gnu.org/licenses/>. 
 */
-
-//Library includes
 #define FASTLED_ALLOW_INTERRUPTS 0
 #define FASTLED_INTERRUPT_RETRY_COUNT 1
 #define FASTLED_ESP8266_NODEMCU_PIN_ORDER
 
-#include <FastLED.h>            // library for ws2812 led arry
+//Library includes
 #include <Wire.h>               // library for serial communication
 #include <TimeLib.h>            // library for time handling / needed for RTC and DCF77
-//#include <Timezone.h>
+#include <Timezone.h>
+#include <FastLED.h>            // library for ws2812 led arry
 
-#include <Wire.h> // must be included here so that Arduino library object file references work
-#include <RtcDS3231.h>
-RtcDS3231<TwoWire> Rtc(Wire);
 #define countof(a) (sizeof(a) / sizeof(a[0]))
 
 #include <ESP8266WiFi.h>
@@ -52,9 +48,6 @@ RtcDS3231<TwoWire> Rtc(Wire);
 #include <strings_en.h>  // wifi manager
 #include <WiFiManager.h> // wifi manager
 #include <ArduinoOTA.h>  // ota updates
-
-#define WIFI_SSID  ""
-#define WIFI_PASS  ""
 
 // IR defines
 #define ONOFF 0xFF02FD
@@ -86,7 +79,7 @@ RtcDS3231<TwoWire> Rtc(Wire);
 
 // brightness constrains for leds
 #define MIN_BRIGHTNESS 32
-#define MAX_BRIGHTNESS 255
+#define MAX_BRIGHTNESS 250
 
 #define STARTING_BRIGHTNESS 64
 int brightness = STARTING_BRIGHTNESS;
@@ -107,6 +100,9 @@ const uint8_t RHEIN_RUHR_MODE = 0; //Define?
 const uint8_t WESSI_MODE = 1;
 
 int displayMode = DIY1;
+
+CRGB lastColor = CRGB::White;  // globale Variable
+
 
 // led array
 uint8_t strip[NUM_LEDS];
@@ -180,6 +176,10 @@ int baudRate = 115200;
 // demo: watch automatic time adjustment on Summer/Winter change (DST)
 //#define MYTZ TZ_Europe_Berlin  
 
+TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120}; // Sommerzeit UTC+2
+TimeChangeRule CET  = {"CET",  Last, Sun, Oct, 3, 60};  // Winterzeit UTC+1
+Timezone DE(CEST, CET);
+
 // Sync timeout
 #define SYNCTIMEOUT 1*1000 // 1min
 
@@ -203,7 +203,7 @@ time_t loctime, serialtime, utc;
 
 
 IPAddress timeServerIP; // time.nist.gov NTP server address
-const char* ntpServerName = "time.nist.gov";
+const char* ntpServerName = "pool.ntp.org";
 const int NTP_PACKET_SIZE = 48; // NTP time stamp is in the first 48 bytes of the message
 byte packetBuffer[ NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing packets
 
@@ -244,33 +244,34 @@ void printDigits(int digits)
 //This function get time from NTP Server
 time_t getNtpTime()
 {
-  IPAddress ntpServerIP; // NTP server's ip address
+  IPAddress ntpServerIP;
 
-  while (udp.parsePacket() > 0) ; // discard any previously received packets
-  Serial.println("Transmit NTP Request");
+  while (udp.parsePacket() > 0);
+  delay(100);  // kurz warten damit kein frisches Paket verworfen wird
+  DEBUG_PRINTLN("Transmit NTP Request");
   WiFi.hostByName(ntpServerName, ntpServerIP);
-  Serial.print(ntpServerName);
-  Serial.print(": ");
-  Serial.println(ntpServerIP);
+  DEBUG_PRINT(ntpServerName);
+  DEBUG_PRINT(": ");
+  DEBUG_PRINTLN(ntpServerIP);
   sendNTPpacket(ntpServerIP);
+  
   uint32_t beginWait = millis();
-  while (millis() - beginWait < 1500) {
-    int size = udp.parsePacket();
-    if (size >= NTP_PACKET_SIZE) {
-      Serial.println("Receive NTP Response");
-      udp.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
-      unsigned long secsSince1900;
-      secsSince1900 =  (unsigned long)packetBuffer[40] << 24;
-      secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
-      secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
-      secsSince1900 |= (unsigned long)packetBuffer[43];
-      // change you GMT time zones here; For nepal its GMT +5:45
-      //So you have to add the you GMT zones in second i.e. 5 hour 45 minutes = 20700 seconds
-      return secsSince1900 - 2208988800UL + 1 * SECS_PER_HOUR;  // GMT+1
+  while (millis() - beginWait < 3000) {
+    if (udp.parsePacket() >= NTP_PACKET_SIZE) {
+      DEBUG_PRINTLN("Receive NTP Response");
+      int bytesRead = udp.read(packetBuffer, NTP_PACKET_SIZE);
+      DEBUG_PRINT("Bytes gelesen: ");
+      DEBUG_PRINTLN(bytesRead);
+      unsigned long secsSince1900 =  (unsigned long)packetBuffer[40] << 24
+                                  | (unsigned long)packetBuffer[41] << 16
+                                  | (unsigned long)packetBuffer[42] << 8
+                                  | (unsigned long)packetBuffer[43];
+      time_t utc = secsSince1900 - 2208988800UL;
+      return DE.toLocal(utc);
     }
   }
-  Serial.println("No NTP Response :-(");
-  return 0; // return 0 if unable to get the time
+  DEBUG_PRINTLN("No NTP Response :-(");
+  return 0;
 }
 
 // send an NTP request to the time server at the given address
@@ -296,22 +297,6 @@ void sendNTPpacket(IPAddress &address)
   udp.endPacket();
 }
 
-//Print Time Function
-void printDateTime(const RtcDateTime& dt)
-{
-    char datestring[20];
-
-    snprintf_P(datestring, 
-            countof(datestring),
-            PSTR("%02u/%02u/%04u %02u:%02u:%02u"),
-            month(),
-            day(),
-            year(),
-            hour(),
-            minute(),
-            second() );
-    Serial.print(datestring);
-}
 
 ESP8266WebServer server(80);
 
@@ -426,7 +411,7 @@ void setup() {
   // ArduinoOTA.setPort(8266);
 
   // Hostname defaults to esp8266-[ChipID]
-  // ArduinoOTA.setHostname("myesp8266");
+   ArduinoOTA.setHostname("wordclock");
 
   // No authentication by default
   // ArduinoOTA.setPassword("admin");
@@ -470,7 +455,6 @@ void setup() {
 
   ArduinoOTA.begin();
 
-  Rtc.Begin();
   
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -485,59 +469,24 @@ void setup() {
   Serial.println(udp.localPort());
   Serial.println("waiting for sync");
   setSyncProvider(getNtpTime);    // Set the time using NTP
+  setSyncInterval(3600);
+
+// aktiv auf Sync warten
+for(int i = 0; i < 10 && timeStatus() == timeNotSet; i++) {
+  DEBUG_PRINTLN("Warte auf NTP...");
+  delay(2000);
+}
+DEBUG_PRINT("TimeStatus: ");
+DEBUG_PRINTLN(timeStatus());
   
   delay(oneSecondDelay);
-  
-  if(timeStatus() != timeNotSet){
-    digitalClockDisplay();
-    
-    Serial.println("here is another way to set rtc");
-      time_t t = now();
-      char d_mon_yr[12];
-      snprintf_P(d_mon_yr, countof(d_mon_yr), PSTR("%s %02u %04u"), monthShortStr(month(t)), day(t), year(t)); // get month, day and year 
-      Serial.println(d_mon_yr);
-      
-      char tim_set[9];
-      snprintf_P(tim_set, countof(tim_set), PSTR("%02u:%02u:%02u"), hour(t), minute(t), second(t)); // get time 
-      Serial.println(tim_set);
-      
-      Serial.println("Now its time to set up rtc");
-      RtcDateTime compiled = RtcDateTime(d_mon_yr, tim_set);
-      printDateTime(compiled);
-      Serial.println("");
-
-    if (!Rtc.IsDateTimeValid()) 
-    {
-        Serial.println("RTC lost confidence in the DateTime!");  
-    }
-     Rtc.SetDateTime(compiled);
-     RtcDateTime now = Rtc.GetDateTime();
-    if (now < compiled) 
-    {
-        Serial.println("RTC is older than compile time!  (Updating DateTime)");
-        Rtc.SetDateTime(compiled);
-    }
-    else if (now > compiled) 
-    {
-        Serial.println("RTC is newer than compile time. (this is expected)");
-    }
-    else if (now == compiled) 
-    {
-        Serial.println("RTC is the same as compile time! (not expected but all is fine)");
-    }
-    Rtc.Enable32kHzPin(false);
-    Rtc.SetSquareWavePin(DS3231SquareWavePin_ModeNone); 
-
-}
-
-    resetAndBlack();
-    displayStrip();
-    pinMode(touchSw,INPUT);
-
+  resetAndBlack();
+  displayStrip();
+  pinMode(touchSw,INPUT);
 
 // starting server
 
-  if (MDNS.begin("esp8266"))
+  if (MDNS.begin("wordclock"))
   {
     Serial.println("MDNS responder started");
   }
@@ -636,8 +585,6 @@ void loop() {
           DEBUG_PRINTLN("LONG"); 
           
           if (dark == 0) {
-            //darkBrightness = FastLED.getBrightness();
-            //FastLED.setBrightness(0);
             displayMode = ONOFF;
             dark = 1;
             DEBUG_PRINTLN("Darkness");
@@ -716,9 +663,6 @@ void loop() {
 void doLDRLogic() { 
   
   // reads ambient light value and adjusts display brightness
-  //  DEBUG_PRINT("M:");
-  //  DEBUG_PRINTLN(millis());
-  //  DEBUG_PRINTLN(waitUntilLDR);
   
   if(millis() >= waitUntilLDR && autoBrightnessEnabled) {
     DEBUG_PRINTLN("doing LDR logic");
@@ -729,8 +673,8 @@ void doLDRLogic() {
 
     if ((newBrightness > (oldBrightness+threshold)) xor (newBrightness < (oldBrightness-threshold))) {
       FastLED.setBrightness(newBrightness);
-      FastLED.show();
       oldBrightness = newBrightness;
+      displayStrip(lastColor);  // mit gespeicherter Farbe neu anzeigen
     }
     DEBUG_PRINT("Value: ");
     DEBUG_PRINT(analogRead(LDR_PIN));
@@ -747,96 +691,34 @@ void doLDRLogic() {
 ///////////////////////
 
 void clockLogic() {
-
   if(millis() >= waitUntilRtc) {
-    DEBUG_PRINTLN("doing clock logic");
-
-    RtcDateTime now = Rtc.GetDateTime();
-    //printDateTime(now);
-    //Serial.println();
     
+    DEBUG_PRINTLN("doing clock logic");
     digitalClockDisplay();  
     waitUntilRtc = millis();
 
-
-// Sylvester-Check
-
-     if ((day() == 31) && (month() == 12) && (hour() == 23) && (minute() == 59)) {
-        if (second() == 50) {
-          DEBUG_PRINTLN("10!");
-          resetAndBlack();
-          pushZEHN();
-          displayStrip(CHSV(random(0, 255), 255, 255));   
-        }
-        else if (second() == 51) {
-          DEBUG_PRINTLN("9!");
-          resetAndBlack();
-          pushNEUN();
-          displayStrip(CHSV(random(0, 255), 255, 255));  
-        }
-        else if (second() == 52) {
-          DEBUG_PRINTLN("8!");
-          resetAndBlack();
-          pushACHT();
-          displayStrip(CHSV(random(0, 255), 255, 255));  
-        }
-        else if (second() == 53) {
-          DEBUG_PRINTLN("7!");
-          resetAndBlack();
-          pushSIEBEN();
-          displayStrip(CHSV(random(0, 255), 255, 255));  
-        }
-        else if (second() == 54) {
-          DEBUG_PRINTLN("6!");
-          resetAndBlack();
-          pushSECHS();
-          displayStrip(CHSV(random(0, 255), 255, 255));  
-        }
-        else if (second() == 55) {
-          DEBUG_PRINTLN("5!");
-          resetAndBlack();
-          pushFUENF1();
-          displayStrip(CHSV(random(0, 255), 255, 255));  
-        }
-        else if (second() == 56) {
-          DEBUG_PRINTLN("4!");
-          resetAndBlack();
-          pushVIER();
-          displayStrip(CHSV(random(0, 255), 255, 255));  
-        }
-        else if (second() == 57) {
-          DEBUG_PRINTLN("3!");
-          resetAndBlack();
-          pushDREI();
-          displayStrip(CHSV(random(0, 255), 255, 255));  
-        }
-        else if (second() == 58) {
-          DEBUG_PRINTLN("2!");
-          resetAndBlack();
-          pushZWEI();
-          displayStrip(CHSV(random(0, 255), 255, 255));  
-        }
-        else if (second() == 59) {
-          DEBUG_PRINTLN("1!");
-          resetAndBlack();
-          pushEINS(true);
-          displayStrip(CHSV(random(0, 255), 255, 255));         
-      }
-
-     else if ((day()== 1) && (month() == 1) && (hour() == 0) && (minute() < 15)) { 
+    // Sylvester-Check
+    if ((day() == 31) && (month() == 12) && (hour() == 23) && (minute() == 59)) {
+        if (second() == 50) { resetAndBlack(); pushZEHN();   displayStrip(CHSV(random(0,255),255,255)); }
+        else if (second() == 51) { resetAndBlack(); pushNEUN();   displayStrip(CHSV(random(0,255),255,255)); }
+        else if (second() == 52) { resetAndBlack(); pushACHT();   displayStrip(CHSV(random(0,255),255,255)); }
+        else if (second() == 53) { resetAndBlack(); pushSIEBEN(); displayStrip(CHSV(random(0,255),255,255)); }
+        else if (second() == 54) { resetAndBlack(); pushSECHS();  displayStrip(CHSV(random(0,255),255,255)); }
+        else if (second() == 55) { resetAndBlack(); pushFUENF1(); displayStrip(CHSV(random(0,255),255,255)); }
+        else if (second() == 56) { resetAndBlack(); pushVIER();   displayStrip(CHSV(random(0,255),255,255)); }
+        else if (second() == 57) { resetAndBlack(); pushDREI();   displayStrip(CHSV(random(0,255),255,255)); }
+        else if (second() == 58) { resetAndBlack(); pushZWEI();   displayStrip(CHSV(random(0,255),255,255)); }
+        else if (second() == 59) { resetAndBlack(); pushEINS(true); displayStrip(CHSV(random(0,255),255,255)); }
+    }
+    else if ((day() == 1) && (month() == 1) && (hour() == 0) && (minute() < 15)) {
       DEBUG_PRINTLN("Sylvester!");
-      displayMode = DIY5;
-      
-      //fireworks();
-      modeSwitch = 1;
+      modeSwitch = 5;
       return;
-     }
-  }    
-// end Sylvester-Check    
-  
+    }
+    
+    // Normale Zeitanzeige
     else if(testMinutes != minute() || testHours != hour()) {
       DEBUG_PRINTLN("SHOW");
-       pushES_IST();
       testMinutes = minute();
       testHours = hour();
       resetAndBlack();
@@ -846,7 +728,7 @@ void clockLogic() {
     
     waitUntilRtc += oneSecondDelay;
   }
- }
+}
 
 void off() {
   if(millis() >= waitUntilOff) {
@@ -943,28 +825,6 @@ void showTree() {
   }
 }
 
-
-void fastTest() {
-  if(millis() >= waitUntilFastTest) {
-    //autoBrightnessEnabled = false;
-    DEBUG_PRINTLN("running display test");
-    waitUntilFastTest = millis();
-    if(testMinutes >= 60) {
-      testMinutes = 0;
-      testHours++;
-    }
-    if(testHours >= 24) {
-      testHours = 0;
-    }
-    
-    //Array leeren
-    resetAndBlack();
-    timeToStrip(testHours, testMinutes);
-    displayStripRandomColor();
-    testMinutes++;
-    waitUntilFastTest += oneSecondDelay;
-  }
-}
 ///////////////////////
 
 CRGB prevColor() {
@@ -1018,6 +878,7 @@ void resetAndBlack() {
   for(int i = 0; i<NUM_LEDS; i++) {
     leds[i] = CRGB::Black;
   }
+  FastLED.show();
 }
 
 void resetStrip() {
@@ -1039,6 +900,7 @@ void displayStrip() {
 }
 
 void displayStrip(CRGB colorCode) {
+  lastColor = colorCode;  // merken
   for(int i = 0; i<stackptr; i++) {
     leds[strip[i]] = colorCode;
   }

@@ -168,9 +168,10 @@ public:
 
         if( (y > (uint16_t)(0x8000)) /*&& (random8() < 64)*/) {
           // boom
-          LEDS.showColor( CRGB::White);
+          FastLED.showColor( CRGB::White);
+
           //delay( 1);
-          LEDS.showColor( CRGB::Black);
+          FastLED.showColor( CRGB::Black);
         }
 
         show = 0;
@@ -252,7 +253,7 @@ void fireworks()
     gSparks[b].Draw();
   }
   
-  LEDS.show();
+  FastLED.show();
   static uint16_t launchcountdown = 0;
   if( gDot.show == 0 ) {
     if( launchcountdown == 0) {
