@@ -10,11 +10,14 @@
 #define PIXEL_WIDTH 11
 #define PIXEL_HEIGHT 10
 
-#define MODEL_WIDTH 10
-#define MODEL_HEIGHT 14
+#define MODEL_WIDTH 11
+#define MODEL_HEIGHT 10
 
-#define PIXEL_X_OFFSET ((MODEL_WIDTH  - PIXEL_WIDTH ) / 2)
-#define PIXEL_Y_OFFSET ((MODEL_HEIGHT - PIXEL_HEIGHT) / 2)
+#define PIXEL_X_OFFSET 0
+#define PIXEL_Y_OFFSET 0
+
+// #define PIXEL_X_OFFSET ((MODEL_WIDTH  - PIXEL_WIDTH ) / 2)
+// #define PIXEL_Y_OFFSET ((MODEL_HEIGHT - PIXEL_HEIGHT) / 2)
 
 #define WINDOW_X_MIN (PIXEL_X_OFFSET)
 #define WINDOW_X_MAX (WINDOW_X_MIN + PIXEL_WIDTH - 1)
@@ -25,12 +28,22 @@ CRGB overrun;
 
 CRGB& XY( byte x, byte y) 
 {
-  x -= PIXEL_X_OFFSET;
-  y -= PIXEL_Y_OFFSET;
-  if( x < PIXEL_WIDTH && y < PIXEL_HEIGHT) {
-    return leds[ (x * PIXEL_HEIGHT) + y ] ;
-  } else
-    return overrun;
+    x -= PIXEL_X_OFFSET;
+    y -= PIXEL_Y_OFFSET;
+    if( x < PIXEL_WIDTH && y < PIXEL_HEIGHT) {
+
+      y = (PIXEL_HEIGHT - 1 - y);
+      
+        if( y % 2 == 0) {
+            // gerade Reihe: links → rechts
+            return leds[ y * PIXEL_WIDTH + x ];
+        } else {
+            // ungerade Reihe: rechts → links
+            return leds[ y * PIXEL_WIDTH + (PIXEL_WIDTH - 1 - x) ];
+        }
+    } else {
+        return overrun;
+    }
 }
 
 void screenscale( accum88 a, byte N, byte& screen, byte& screenerr)
@@ -226,8 +239,6 @@ public:
 
 Dot gDot;
 Dot gSparks[NUM_SPARKS];
-// end fireworks
-
 
 void fireworks() 
 { 
@@ -235,17 +246,19 @@ void fireworks()
   CRGB sky1(0,0,2);
   CRGB sky2(2,0,2);
 
-  memset8( leds, 0, NUM_LEDS * 3);
+  // memset8( leds, 0, NUM_LEDS * 3);
 
-#if 1
-   for( byte v = 0; v < NUM_LEDS; v++) {
-     leds[v] = sky1;
-   }
-   for( byte u = 0; u < 1; u++) {
-    leds[random8(NUM_LEDS)] = sky2;
-  }
-#endif
+// #if 1
+//    for( byte v = 0; v < NUM_LEDS; v++) {
+//      leds[v] = sky1;
+//    }
+//    for( byte u = 0; u < 1; u++) {
+//     leds[random8(NUM_LEDS)] = sky2;
+//   }
+// #endif
   
+  fadeToBlackBy(leds, NUM_LEDS, 20);
+
   gDot.Move();
   gDot.Draw();
   for( byte b = 0; b < NUM_SPARKS; b++) {

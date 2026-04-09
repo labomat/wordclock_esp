@@ -1,5 +1,5 @@
 /* 
-v 2.0
+v 2.1
 (c) 2014 - Markus Backes - https://backes-markus.de/blog/
 
 This program is free software: you can redistribute it and/or modify
@@ -48,6 +48,7 @@ Programm erhalten haben. Wenn nicht, siehe <http://www.gnu.org/licenses/>.
 #include <strings_en.h>  // wifi manager
 #include <WiFiManager.h> // wifi manager
 #include <ArduinoOTA.h>  // ota updates
+
 
 // IR defines
 #define ONOFF 0xFF02FD
@@ -190,14 +191,86 @@ boolean dataSync = false;
 time_t loctime, serialtime, utc;
 
 
-#define DEB_ON
+// ===================== DEBUG CONFIG =====================
+// Debug-Modus wählen:
+// 0 = kein Debug
+// 1 = Serial
+// 2 = Telnet
+// 3 = Serial + Telnet
+// 4 = WebSerial (Browser)
+#define DEBUG_MODE 3
 
-#ifdef DEB_ON
-  #define DEBUG_PRINT(str)  Serial.print(str)
-  #define DEBUG_PRINTLN(str)  Serial.println(str)
+#include <ESP8266WiFi.h>
+
+#if DEBUG_MODE == 2 || DEBUG_MODE == 3
+WiFiServer telnetServer(23);
+WiFiClient telnetClient;
+#endif
+
+#if DEBUG_MODE == 4
+#include <ESPAsyncWebServer.h>
+#include <WebSerial.h>
+AsyncWebServer server(80);
+#endif
+
+// ===================== DEBUG MACROS =====================
+
+#if DEBUG_MODE == 4
+
+#define DEBUG_PRINT(x)    do { WebSerial.print(x); } while(0)
+#define DEBUG_PRINTLN(x)  do { WebSerial.println(x); } while(0)
+#define DEBUG_PRINTF(...) do { WebSerial.printf(__VA_ARGS__); } while(0)
+#define DEBUG_BEGIN()     do { WebSerial.begin(&server); server.begin(); } while(0)
+#define DEBUG_HANDLE()    do { } while(0)
+
+#elif DEBUG_MODE == 3
+
+#define DEBUG_PRINT(x)    do { Serial.print(x); if(telnetClient && telnetClient.connected()) telnetClient.print(x); } while(0)
+#define DEBUG_PRINTLN(x)  do { Serial.println(x); if(telnetClient && telnetClient.connected()) telnetClient.println(x); } while(0)
+#define DEBUG_PRINTF(...) do { Serial.printf(__VA_ARGS__); if(telnetClient && telnetClient.connected()) telnetClient.printf(__VA_ARGS__); } while(0)
+#define DEBUG_BEGIN()     do { Serial.begin(115200); telnetServer.begin(); telnetServer.setNoDelay(true); } while(0)
+#define DEBUG_HANDLE()    do { \
+                              if (telnetServer.hasClient()) { \
+                                if (!telnetClient || !telnetClient.connected()) { \
+                                  telnetClient = telnetServer.accept(); \
+                                } else { \
+                                  telnetServer.accept().stop(); \
+                                } \
+                              } \
+                           } while(0)
+
+#elif DEBUG_MODE == 2
+
+#define DEBUG_PRINT(x)    do { if(telnetClient && telnetClient.connected()) telnetClient.print(x); } while(0)
+#define DEBUG_PRINTLN(x)  do { if(telnetClient && telnetClient.connected()) telnetClient.println(x); } while(0)
+#define DEBUG_PRINTF(...) do { if(telnetClient && telnetClient.connected()) telnetClient.printf(__VA_ARGS__); } while(0)
+#define DEBUG_BEGIN()     do { telnetServer.begin(); telnetServer.setNoDelay(true); } while(0)
+#define DEBUG_HANDLE()    do { \
+                              if (telnetServer.hasClient()) { \
+                                if (!telnetClient || !telnetClient.connected()) { \
+                                  telnetClient = telnetServer.accept(); \
+                                } else { \
+                                  telnetServer.accept().stop(); \
+                                } \
+                              } \
+                           } while(0)
+
+#elif DEBUG_MODE == 1
+
+#define DEBUG_PRINT(x)    do { Serial.print(x); } while(0)
+#define DEBUG_PRINTLN(x)  do { Serial.println(x); } while(0)
+#define DEBUG_PRINTF(...) do { Serial.printf(__VA_ARGS__); } while(0)
+#define DEBUG_BEGIN()     do { Serial.begin(115200); } while(0)
+#define DEBUG_HANDLE()    do { } while(0)
+
 #else
-  #define DEBUG_PRINT(str)
-  #define DEBUG_PRINTLN(str)
+
+#define DEBUG_PRINT(x)    do { } while(0)
+#define DEBUG_PRINTLN(x)  do { } while(0)
+#define DEBUG_PRINTF(...) do { } while(0)
+#define DEBUG_BEGIN()     do { } while(0)
+#define DEBUG_HANDLE()    do { } while(0)
+
 #endif
 
 
@@ -220,25 +293,25 @@ void sendNTPpacket(IPAddress &address);
 
 void digitalClockDisplay()
 {
-  Serial.print(hour());//print hour in serial monitor
-  printDigits(minute());//print minutes in serial monitor
-  printDigits(second()); //print second in serial monitor
-  Serial.print(" ");
-  Serial.print(day()); //print day in serial monitor
-  Serial.print(".");
-  Serial.print(month()); //print month in serial monitor
-  Serial.print(".");
-  Serial.print(year()); //print year in serial monitor
-  Serial.println();
+  DEBUG_PRINT(hour());     //print hour in serial monitor
+  printDigits(minute());    //print minutes in serial monitor
+  printDigits(second());    //print second in serial monitor
+  DEBUG_PRINT(" ");
+  DEBUG_PRINT(day());      //print day in serial monitor
+  DEBUG_PRINT(".");
+  DEBUG_PRINT(month());    //print month in serial monitor
+  DEBUG_PRINT(".");
+  DEBUG_PRINT(year());     //print year in serial monitor
+  DEBUG_PRINTLN();
  
 }
 
 void printDigits(int digits)
 {
-  Serial.print(":");
+  DEBUG_PRINT(":");
   if (digits < 10)
-    Serial.print('0');
-  Serial.print(digits);
+    DEBUG_PRINT('0');
+  DEBUG_PRINT(digits);
 }
 
 //This function get time from NTP Server
@@ -371,11 +444,9 @@ void handleNotFound()
 
 void setup() {
   
-  #ifdef DEB_ON
-    Serial.begin(baudRate);
-  #endif
+  DEBUG_BEGIN(); 
 
-  Serial.println("Start setup");
+  DEBUG_PRINTLN("Start setup");
 
   delay(500);
   
@@ -389,7 +460,7 @@ void setup() {
   for(int i = 0; i<NUM_LEDS; i++) {
     strip[i] = 0;
   }
-  Serial.println("Init strip");
+  DEBUG_PRINTLN("Init strip");
   
   FastLED.addLeds<WS2812B, STRIP_DATA_PIN, GRB>(leds, NUM_LEDS);
   resetAndBlack();
@@ -428,29 +499,29 @@ void setup() {
       type = "filesystem";
 
     // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-    Serial.println("Start updating " + type);
+    DEBUG_PRINTLN("Start updating " + type);
   });
 
   ArduinoOTA.onEnd([]() {
-    Serial.println("\nEnd");
+    DEBUG_PRINTLN("\nEnd");
   });
 
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    DEBUG_PRINTF("Progress: %u%%\r", (progress / (total / 100)));
   });
 
   ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("Error[%u]: ", error);
+    DEBUG_PRINTF("Error[%u]: ", error);
     if (error == OTA_AUTH_ERROR)
-      Serial.println("Auth Failed");
+      DEBUG_PRINTLN("Auth Failed");
     else if (error == OTA_BEGIN_ERROR)
-      Serial.println("Begin Failed");
+      DEBUG_PRINTLN("Begin Failed");
     else if (error == OTA_CONNECT_ERROR)
-      Serial.println("Connect Failed");
+      DEBUG_PRINTLN("Connect Failed");
     else if (error == OTA_RECEIVE_ERROR)
-      Serial.println("Receive Failed");
+      DEBUG_PRINTLN("Receive Failed");
     else if (error == OTA_END_ERROR)
-      Serial.println("End Failed");
+      DEBUG_PRINTLN("End Failed");
   });
 
   ArduinoOTA.begin();
@@ -460,14 +531,14 @@ void setup() {
     delay(500);
     Serial.print(".");
   }
-  Serial.println(" ");
-  Serial.print("IP number assigned by DHCP is ");
-  Serial.println(WiFi.localIP());
-  Serial.println("Starting UDP");
+  DEBUG_PRINTLN(" ");
+  DEBUG_PRINT("IP number assigned by DHCP is ");
+  DEBUG_PRINTLN(WiFi.localIP());
+  DEBUG_PRINTLN("Starting UDP");
   udp.begin(localPort);
-  Serial.print("Local port: ");
-  Serial.println(udp.localPort());
-  Serial.println("waiting for sync");
+  DEBUG_PRINT("Local port: ");
+  DEBUG_PRINTLN(udp.localPort());
+  DEBUG_PRINTLN("waiting for sync");
   setSyncProvider(getNtpTime);    // Set the time using NTP
   setSyncInterval(3600);
 
@@ -488,7 +559,7 @@ DEBUG_PRINTLN(timeStatus());
 
   if (MDNS.begin("wordclock"))
   {
-    Serial.println("MDNS responder started");
+    DEBUG_PRINTLN("MDNS responder started");
   }
 
   // server commands
@@ -496,7 +567,7 @@ DEBUG_PRINTLN(timeStatus());
   server.on("/set", handleSet); // set mode
   server.onNotFound(handleNotFound);
   server.begin();
-  Serial.println("HTTP server started");
+  DEBUG_PRINTLN("HTTP server started");
 
     delay(oneSecondDelay);
 }
@@ -505,7 +576,7 @@ void loop() {
  
   doLDRLogic();
   doTouchLogic(); 
-  
+  DEBUG_HANDLE();
   ArduinoOTA.handle();
   server.handleClient();
   MDNS.update();
