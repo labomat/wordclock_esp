@@ -1,6 +1,12 @@
 /* 
-v 2.1
-(c) 2014 - Markus Backes - https://backes-markus.de/blog/
+
+W O R D C L O C K  2
+
+v 2.1.1
+
+recreation of the iconic clocktwo from Marco Biegert and Andreas Funk
+original code from Markus Backes
+adapted for esp8266 and modified with animations, ota and control webapp
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -15,19 +21,8 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-Dieses Programm ist Freie Software: Sie koennen es unter den Bedingungen
-der GNU General Public License, wie von der Free Software Foundation,
-Version 3 der Lizenz oder (nach Ihrer Wahl) jeder neueren
-veroeffentlichten Version, weiterverbreiten und/oder modifizieren.
-
-Dieses Programm wird in der Hoffnung, dass es nuetzlich sein wird, aber
-OHNE JEDE GEWAEHRLEISTUNG, bereitgestellt; sogar ohne die implizite
-Gewaehrleistung der MARKTFaeHIGKEIT oder EIGNUNG FUER EINEN BESTIMMTEN ZWECK.
-Siehe die GNU General Public License fuer weitere Details.
-
-Sie sollten eine Kopie der GNU General Public License zusammen mit diesem
-Programm erhalten haben. Wenn nicht, siehe <http://www.gnu.org/licenses/>. 
 */
+
 #define FASTLED_ALLOW_INTERRUPTS 0
 #define FASTLED_INTERRUPT_RETRY_COUNT 1
 #define FASTLED_ESP8266_NODEMCU_PIN_ORDER
@@ -116,6 +111,8 @@ CRGB leds[NUM_LEDS];
 CRGB defaultColor = CRGB::White;
 uint8_t colorIndex = 0;
 
+uint8_t heartPhase = 0;   // for heart animation
+ 
 //
 // Setting for touch control via ttp 223 sensor
 //
@@ -826,24 +823,50 @@ void makeParty() {
 }
 
 void showHeart() {
-  if(millis() >= waitUntilHeart) {
-    //autoBrightnessEnabled = false;
-    DEBUG_PRINTLN("showing heart");
-    waitUntilHeart = millis();
-    resetAndBlack();
-    pushToStrip(L29); pushToStrip(L30); pushToStrip(L70); pushToStrip(L89);
-    pushToStrip(L11); pushToStrip(L48); pushToStrip(L68); pushToStrip(L91);
-    pushToStrip(L7); pushToStrip(L52); pushToStrip(L107);
-    pushToStrip(L6); pushToStrip(L106);
-    pushToStrip(L5); pushToStrip(L105);
-    pushToStrip(L15); pushToStrip(L95);
-    pushToStrip(L23); pushToStrip(L83);
-    pushToStrip(L37); pushToStrip(L77);
-    pushToStrip(L41); pushToStrip(L61);
-    pushToStrip(L59);
-    displayStrip(CRGB::Red);
-    waitUntilHeart += oneSecondDelay;
+
+  const uint8_t heart[10][11] = {
+  {0,0,1,1,1,0,1,1,1,0,0},
+  {0,1,1,1,1,1,1,1,1,1,0},
+  {1,1,1,1,1,1,1,1,1,1,1},
+  {1,1,1,1,1,1,1,1,1,1,1},
+  {1,1,1,1,1,1,1,1,1,1,1},
+  {0,1,1,1,1,1,1,1,1,1,0},
+  {0,0,1,1,1,1,1,1,1,0,0},
+  {0,0,0,1,1,1,1,1,0,0,0},
+  {0,0,0,0,1,1,1,0,0,0,0},
+  {0,0,0,0,0,1,0,0,0,0,0}
+};
+
+  if (millis() < waitUntilHeart) return;
+
+  // sanfter Puls (20 BPM „Herzschlaggefühl“)
+  uint8_t brightness = beatsin8(14, 100, 255);
+
+  // optional: leichtes „Atmen“ der Intensität
+  uint8_t glow = beatsin8(10, 180, 255);
+
+  resetAndBlack();
+
+  CRGB base = CRGB(glow, 0, 0);
+
+  // Herz komplett neu zeichnen (gefüllt!)
+  for (uint8_t y = 0; y < 10; y++) {
+  for (uint8_t x = 0; x < 11; x++) {
+
+    if (heart[y][x]) {
+
+      CRGB c = CRGB::Red;
+      c.nscale8(brightness);
+
+      XY(x, 9 - y) = c;   // 🔥 FIX: Flip Y
+    }
   }
+}
+
+  displayStrip(CRGB::Black); // falls dein System einen flush braucht
+
+  // schneller Frame-Refresh für weichen Puls
+  waitUntilHeart = millis() + 20;
 }
 
 
@@ -1339,28 +1362,27 @@ String SendHTML(uint8_t mode, uint8_t brightness)
   String html = "<!DOCTYPE html> <html>\n";
   html += "<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, user-scalable=no\">\n";
   html += "<title>WordClock Control</title>\n";
-  html += "<style>html { font-family: Helvetica; display: inline-block; margin: 0 auto; text-align: center;}\n";
-  html += "body{color: #444;margin-top: 30px;} h1 {margin: 30px auto 20px;} h3 {margin-bottom: 30px;}\n";
-  html += ".button {display: block;background-color: #1abc9c;border: none;color: white;padding: 13px 30px;text-decoration: none;font-size: 25px;margin: 0px auto 35px;cursor: pointer;border-radius: 4px;}\n";
-  html += ".button {background-color: #34495e;}\n";
-  html += ".button:hover {background-color: #2c3e50;}\n";
-  html += (String) ".mode-" + mode + " .mode-" + mode + ".button {background-color: #f67b6a;}\n";
+  html += "<style>html { font-family: \"Open Sans\", sans-serif; display: inline-block; margin: 0 auto; text-align: center;}\n";
+  html += "body{color: #fff; background-color: #000; margin-top: 30px;} h1 {margin: 30px auto 40px;} h3 {margin-bottom: 30px;}\n";
+  html += ".panel {display: flex; flex-flow: row wrap; width: 100%; max-width: 500px; margin: 0 auto; }\n";  
+  html += ".button {width: 45%;margin: 0px auto 30px; padding: 10% 0; border: 2px solid white;border-radius: 10px; color: white;text-decoration: none;font-size: 18px;cursor: pointer;}\n";
+  html += ".button:hover, .button:active {background-color: #2c3e50;}\n";
+  html += (String) ".mode-" + mode + " .mode-" + mode + ".button {background-color: #fb6907;color:black; font-weight: 700;}\n";
   html += (String) ".mode-" + mode + " .mode-" + mode + ".button:hover {background-color: #f27556;}\n";
-  html += "p {font-size: 14px;color: #888;margin-bottom: 10px;}\n";
+  html += "p {font-size: 16px;color: #888;margin-bottom: 20px;}\n";
   html += "</style>\n";
   html += "</head>\n";
   html += (String) "<body class=\"mode-" + mode + "\">\n";
-
-  html += "<h1>WordClock Control</h1>\n";
-  html += (String) "<p>Actual Mode: " + mode + " - Brightness: " + brightness + " / " + newBrightness + "</p>\n";
-
+  html += "<h1>W O R D C L O C K</h1>\n";
+  html += "<div class=\"panel\">\n";
   html += (String) "<a class=\"mode-1 button\" href=\"/set?mode=1&bright=" + brightness + "\">Uhrzeit</a>\n";
   html += (String) "<a class=\"mode-2 button\" href=\"/set?mode=2&bright=" + brightness + "\">Party Time!</a>\n";
   html += (String) "<a class=\"mode-3 button\" href=\"/set?mode=3&bright=" + brightness + "\">Herz</a>\n";
   html += (String) "<a class=\"mode-4 button\" href=\"/set?mode=4&bright=" + brightness + "\">Weihnachtsbaum</a>\n";
   html += (String) "<a class=\"mode-5 button\" href=\"/set?mode=5&bright=" + brightness + "\">Sylvester</a>\n";
   html += (String) "<a class=\"mode-99 button\" href=\"/set?mode=99&bright=" + brightness + "\">Display aus</a>\n";
-
+ html += "</div>\n";
+  html += (String) "<p>Mode: " + mode + " - Brightness: " + brightness + " / " + newBrightness + "</p>\n";
   html += "</body>\n";
   html += "</html>\n";
   return html;
