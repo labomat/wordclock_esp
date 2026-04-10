@@ -825,17 +825,17 @@ void makeParty() {
 void showHeart() {
 
   const uint8_t heart[10][11] = {
-  {0,0,1,1,1,0,1,1,1,0,0},
-  {0,1,1,1,1,1,1,1,1,1,0},
-  {1,1,1,1,1,1,1,1,1,1,1},
-  {1,1,1,1,1,1,1,1,1,1,1},
-  {1,1,1,1,1,1,1,1,1,1,1},
-  {0,1,1,1,1,1,1,1,1,1,0},
-  {0,0,1,1,1,1,1,1,1,0,0},
-  {0,0,0,1,1,1,1,1,0,0,0},
-  {0,0,0,0,1,1,1,0,0,0,0},
-  {0,0,0,0,0,1,0,0,0,0,0}
-};
+    {0,0,1,1,1,0,1,1,1,0,0},
+    {0,1,1,1,1,1,1,1,1,1,0},
+    {1,1,1,1,1,1,1,1,1,1,1},
+    {1,1,1,1,1,1,1,1,1,1,1},
+    {1,1,1,1,1,1,1,1,1,1,1},
+    {0,1,1,1,1,1,1,1,1,1,0},
+    {0,0,1,1,1,1,1,1,1,0,0},
+    {0,0,0,1,1,1,1,1,0,0,0},
+    {0,0,0,0,1,1,1,0,0,0,0},
+    {0,0,0,0,0,1,0,0,0,0,0}
+  };
 
   if (millis() < waitUntilHeart) return;
 
@@ -1356,24 +1356,35 @@ void pushUHR() {
 }
 ///////////////////////
 
+
+
 // Build the WebInterface
 String SendHTML(uint8_t mode, uint8_t brightness)
 {
+
+  char timeBuf[6];
+  sprintf(timeBuf, "%02d:%02d", hour(), minute());
+  String timeStr = String(timeBuf);
+
   String html = "<!DOCTYPE html> <html>\n";
   html += "<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, user-scalable=no\">\n";
   html += "<title>WordClock Control</title>\n";
   html += "<style>html { font-family: \"Open Sans\", sans-serif; display: inline-block; margin: 0 auto; text-align: center;}\n";
-  html += "body{color: #fff; background-color: #000; margin-top: 30px;} h1 {margin: 30px auto 40px;} h3 {margin-bottom: 30px;}\n";
+  html += "body{color: #fff; background-color: #000; margin-top: 30px;} h1 {font-size: 38px; margin: 30px auto 20px;} h3 {margin-bottom: 30px;}\n";
+  html += ".time {font-size: 34px; font-weight: 700; color: #9C9C9C; margin: 10px 0 30px;}\n";
   html += ".panel {display: flex; flex-flow: row wrap; width: 100%; max-width: 500px; margin: 0 auto; }\n";  
-  html += ".button {width: 45%;margin: 0px auto 30px; padding: 10% 0; border: 2px solid white;border-radius: 10px; color: white;text-decoration: none;font-size: 18px;cursor: pointer;}\n";
+  html += ".button {width: 45%;margin: 0px auto 30px; padding: 10% 0; border: 2px solid white;border-radius: 2px; color: white;text-decoration: none;font-size: 18px;cursor: pointer;}\n";
   html += ".button:hover, .button:active {background-color: #2c3e50;}\n";
-  html += (String) ".mode-" + mode + " .mode-" + mode + ".button {background-color: #fb6907;color:black; font-weight: 700;}\n";
-  html += (String) ".mode-" + mode + " .mode-" + mode + ".button:hover {background-color: #f27556;}\n";
+  html += (String) ".mode-" + mode + " .mode-" + mode + ".button {background-color: #fff;color:black; font-weight: 700;}\n";
+  html += (String) ".mode-" + mode + " .mode-" + mode + ".button:hover {background-color: #fff;}\n";
   html += "p {font-size: 16px;color: #888;margin-bottom: 20px;}\n";
   html += "</style>\n";
   html += "</head>\n";
   html += (String) "<body class=\"mode-" + mode + "\">\n";
   html += "<h1>W O R D C L O C K</h1>\n";
+  html += "<div class=\"time\" id=\"clock\" data-h=\"" + String(hour()) + "\" data-m=\"" + String(minute()) + "\">";
+  html += timeStr;
+  html += "</div>\n";
   html += "<div class=\"panel\">\n";
   html += (String) "<a class=\"mode-1 button\" href=\"/set?mode=1&bright=" + brightness + "\">Uhrzeit</a>\n";
   html += (String) "<a class=\"mode-2 button\" href=\"/set?mode=2&bright=" + brightness + "\">Party Time!</a>\n";
@@ -1381,8 +1392,31 @@ String SendHTML(uint8_t mode, uint8_t brightness)
   html += (String) "<a class=\"mode-4 button\" href=\"/set?mode=4&bright=" + brightness + "\">Weihnachtsbaum</a>\n";
   html += (String) "<a class=\"mode-5 button\" href=\"/set?mode=5&bright=" + brightness + "\">Sylvester</a>\n";
   html += (String) "<a class=\"mode-99 button\" href=\"/set?mode=99&bright=" + brightness + "\">Display aus</a>\n";
- html += "</div>\n";
+  html += "</div>\n";
   html += (String) "<p>Mode: " + mode + " - Brightness: " + brightness + " / " + newBrightness + "</p>\n";
+  html += R"rawliteral(
+    <script>
+    const clock = document.getElementById("clock");
+
+    let h = parseInt(clock.dataset.h);
+    let m = parseInt(clock.dataset.m);
+
+    function pad(v){ return v < 10 ? "0" + v : v; }
+
+    setInterval(() => {
+      m++;
+      if (m >= 60) {
+        m = 0;
+        h++;
+      }
+      if (h >= 24) {
+        h = 0;
+      }
+
+      clock.innerText = pad(h) + ":" + pad(m);
+    }, 60000);
+    </script>
+    )rawliteral";
   html += "</body>\n";
   html += "</html>\n";
   return html;
