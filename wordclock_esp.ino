@@ -99,6 +99,10 @@ int displayMode = DIY1;
 
 CRGB lastColor = CRGB::White;  // globale Variable
 
+// HA notification dots
+CRGB notifyDotColor = CRGB::Black;
+bool notifyDotsActive = false;
+
 
 // led array
 uint8_t strip[NUM_LEDS];
@@ -162,6 +166,7 @@ void displayStripRandomColor();
 void displayStrip();
 void displayStrip(CRGB colorCode);
 void timeToStrip(uint8_t hours,uint8_t minutes);
+void handleNotify();
 
 int baudRate = 115200;
 
@@ -439,6 +444,19 @@ void handleNotFound()
   //digitalWrite(led, 0);
 }
 
+void handleNotify() {
+  String colorArg = server.arg("color");
+  if (colorArg == "" || colorArg == "off") {
+    notifyDotsActive = false;
+  } else {
+    long colorVal = strtol(colorArg.c_str(), NULL, 16);
+    notifyDotColor = CRGB((colorVal >> 16) & 0xFF, (colorVal >> 8) & 0xFF, colorVal & 0xFF);
+    notifyDotsActive = true;
+  }
+  displayStrip(lastColor);
+  server.send(200, "text/plain", "OK");
+}
+
 void setup() {
   
   DEBUG_BEGIN(); 
@@ -560,8 +578,9 @@ DEBUG_PRINTLN(timeStatus());
   }
 
   // server commands
-  server.on("/", handleRoot);   // default web page
-  server.on("/set", handleSet); // set mode
+  server.on("/", handleRoot);       // default web page
+  server.on("/set", handleSet);     // set mode
+  server.on("/notify", handleNotify); // HA notification dots
   server.onNotFound(handleNotFound);
   server.begin();
   DEBUG_PRINTLN("HTTP server started");
@@ -793,7 +812,7 @@ void clockLogic() {
       timeToStrip(testHours, testMinutes);
       displayStrip(defaultColor);
     }
-    
+
     waitUntilRtc += oneSecondDelay;
   }
 }
@@ -994,9 +1013,22 @@ void displayStrip() {
 }
 
 void displayStrip(CRGB colorCode) {
-  lastColor = colorCode;  // merken
+  lastColor = colorCode;
+  // Pre-clear all dot LEDs so residual colors don't persist across states
+  leds[L110] = CRGB::Black;
+  leds[L111] = CRGB::Black;
+  leds[L112] = CRGB::Black;
+  leds[L113] = CRGB::Black;
+  // Render word LEDs (may also re-light some dots for minute markers)
   for(int i = 0; i<stackptr; i++) {
     leds[strip[i]] = colorCode;
+  }
+  // Notification color only on dots not already lit by the clock
+  if (notifyDotsActive) {
+    if (leds[L110] == CRGB::Black) leds[L110] = notifyDotColor;
+    if (leds[L111] == CRGB::Black) leds[L111] = notifyDotColor;
+    if (leds[L112] == CRGB::Black) leds[L112] = notifyDotColor;
+    if (leds[L113] == CRGB::Black) leds[L113] = notifyDotColor;
   }
   FastLED.show();
 }
